@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SQL 快速构建器1.0</title>
+  <title>SQL 快速构建器</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -137,13 +137,37 @@
       font-family: "JetBrains Mono", monospace;
       border-top: 1px solid #eef2f8;
       cursor: grab;
-      display: flex;
-      justify-content: space-between;
+      display: grid;
+      grid-template-columns: minmax(80px, 1fr) minmax(100px, 0.9fr) minmax(0, 1.2fr);
+      gap: 0.4rem;
       align-items: center;
     }
     .field-item:hover { background: #fafcff; }
     .field-item:active { cursor: grabbing; }
-    .type-badge { font-size: 0.65rem; color: var(--text-muted); }
+    .type-badge { font-size: 0.65rem; color: var(--text-muted); white-space: nowrap; }
+    .field-row-head {
+      display: grid;
+      grid-template-columns: minmax(80px, 1fr) minmax(100px, 0.9fr) minmax(0, 1.2fr);
+      gap: 0.4rem;
+      padding: 0.25rem 0.65rem 0.15rem;
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      font-weight: 600;
+      border-top: 1px solid #eef2f8;
+      background: #fbfcff;
+    }
+    .field-name { font-weight: 500; min-width: 0; }
+    .field-type { min-width: 0; }
+    .field-comment {
+      font-size: 0.7rem;
+      color: #4a5a72;
+      font-family: "Noto Sans SC", system-ui, sans-serif;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .field-comment:empty::before { content: "—"; color: #c0cad8; }
     .drop-zone {
       min-height: 48px;
       border: 2px dashed var(--border);
@@ -218,7 +242,7 @@
       <div class="col-body">
         <div class="card">
           <h3>从 DDL 导入 <span class="type-badge">支持 CREATE TABLE</span></h3>
-          <label class="hint">粘贴 MySQL / PostgreSQL 等风格的 DDL，点击解析表名与列</label>
+          <label class="hint">粘贴 MySQL / PostgreSQL 等风格 DDL，解析表名、列、类型，MySQL 列上 <code>COMMENT '…'</code> 会一并导入为注释</label>
           <textarea id="ddlInput" placeholder="例：&#10;CREATE TABLE users (&#10;  id INT PRIMARY KEY,&#10;  name VARCHAR(100),&#10;  created_at TIMESTAMP&#10;);"></textarea>
           <div class="row-btns">
             <button type="button" class="btn btn-primary" id="parseDdl">解析 DDL</button>
@@ -230,14 +254,15 @@
           <h3>手动添加表与字段 <span class="type-badge">可选</span></h3>
           <label class="hint">表名</label>
           <input type="text" id="manualTable" placeholder="orders" />
-          <label class="hint" style="margin-top:0.5rem">字段列表（每行：字段名 类型，用空格或 Tab 分隔）</label>
-          <textarea id="manualFields" placeholder="id int&#10;user_id int&#10;amount decimal(10,2)"></textarea>
+          <label class="hint" style="margin-top:0.5rem">字段列表：每行「列名 类型」；可写注释——用 <kbd>Tab</kbd> 分三列（列名、类型、注释），或「列名 类型 <kbd>|</kbd> 注释」</label>
+          <textarea id="manualFields" placeholder="id&#9;int&#9;主键&#10;user_id int&#10;status tinyint | 状态 0/1"></textarea>
           <div class="row-btns">
             <button type="button" class="btn btn-primary" id="addManualTable">添加表</button>
           </div>
         </div>
         <div class="card">
           <h3>已定义表 <span class="type-badge">拖拽到中间「SELECT」或条件</span></h3>
+          <p class="empty-msg" id="schemaPersistHint" style="margin-bottom:0.4rem">导入或添加的表结构会保存到本机浏览器，刷新不丢失；使用「清空表结构」会删除本地数据。</p>
           <p class="empty-msg" id="schemaEmpty">暂无表结构，请导入 DDL 或手动添加。</p>
           <div class="table-list" id="tableList"></div>
         </div>
@@ -346,8 +371,10 @@
 (function () {
   "use strict";
 
-  /** @typedef {{ name: string, type: string }} Field */
+  /** @typedef {{ name: string, type: string, comment?: string }} Field */
   /** @typedef {{ name: string, fields: Field[] }} Table */
+
+  const SCHEMA_STORAGE_KEY = "sql-builder.schema.v1";
 
   const state = {
     tables: /** @type {Table[]} */ ([]),
@@ -390,7 +417,7 @@
 
   const SAMPLE_DDL = `CREATE TABLE users (
   id INT PRIMARY KEY,
-  name VARCHAR(100) NOT NULL,
+  name VARCHAR(100) NOT NULL COMMENT '姓名',
   email VARCHAR(200),
   dept VARCHAR(50),
   created_at TIMESTAMP
@@ -429,6 +456,52 @@ CREATE TABLE orders (
     return s;
   }
 
+  function isValidPersistedField(f) {
+    return !!(f && typeof f.name === "string" && f.name && typeof f.type === "string");
+  }
+  function isValidPersistedTable(t) {
+    return !!(t && typeof t.name === "string" && t.name && Array.isArray(t.fields) && t.fields.length && t.fields.every(isValidPersistedField));
+  }
+  function saveSchemaToStorage() {
+    try {
+      localStorage.setItem(SCHEMA_STORAGE_KEY, JSON.stringify(state.tables));
+    } catch (_) {}
+  }
+  function clearSchemaStorage() {
+    try {
+      localStorage.removeItem(SCHEMA_STORAGE_KEY);
+    } catch (_) {}
+  }
+  /** 从 localStorage 恢复表结构，并重置查询区为安全默认值。 */
+  function loadSchemaFromStorage() {
+    try {
+      const raw = localStorage.getItem(SCHEMA_STORAGE_KEY);
+      if (!raw) {
+        return false;
+      }
+      const data = JSON.parse(raw);
+      if (!Array.isArray(data) || !data.length) {
+        clearSchemaStorage();
+        return false;
+      }
+      if (!data.every(isValidPersistedTable)) {
+        clearSchemaStorage();
+        return false;
+      }
+      state.tables = data;
+      state.selectFields = [];
+      state.useStar = false;
+      state.groupBy = null;
+      const t0 = data[0];
+      const f0 = t0.fields[0] ? t0.fields[0].name : "";
+      state.whereRows = [{ table: t0.name, field: f0, op: "=", value: "" }];
+      return true;
+    } catch (_) {
+      clearSchemaStorage();
+      return false;
+    }
+  }
+
   function getTable(tname) {
     return state.tables.find((t) => t.name === tname);
   }
@@ -448,14 +521,21 @@ CREATE TABLE orders (
           (t) => `
         <div class="table-block" data-table="${escapeHtml(t.name)}">
           <div class="table-head"><span>${escapeHtml(t.name)}</span><span class="type-badge">${t.fields.length} 列</span></div>
+          <div class="field-row-head"><span>列名</span><span>类型</span><span>注释</span></div>
           ${t.fields
             .map(
-              (f) => `
-            <div class="field-item" draggable="true" data-table="${escapeHtml(t.name)}" data-field="${escapeHtml(f.name)}" data-type="${escapeHtml(f.type)}"
-              title="拖到 SELECT 或条件行">
-              <span>${escapeHtml(f.name)}</span>
-              <span class="type-badge">${escapeHtml(f.type)}</span>
-            </div>`
+              (f) => {
+                const cmt = (f.comment && String(f.comment).trim()) || "";
+                const tip = "拖到 SELECT 或条件行" + (cmt ? " — " + cmt : "");
+                return `
+            <div class="field-item" draggable="true" data-table="${escapeHtml(t.name)}" data-field="${escapeHtml(f.name)}" data-type="${escapeHtml(f.type)}" data-comment="${escapeHtml(
+                  cmt
+                )}" title="${escapeHtml(tip)}">
+              <span class="field-name">${escapeHtml(f.name)}</span>
+              <span class="field-type"><span class="type-badge">${escapeHtml(f.type)}</span></span>
+              <span class="field-comment" title="${escapeHtml(cmt)}">${cmt ? escapeHtml(cmt) : ""}</span>
+            </div>`;
+              }
             )
             .join("")}
         </div>`
@@ -694,6 +774,34 @@ CREATE TABLE orders (
     return m ? fromIdx + m.index : -1;
   }
 
+  /** 从建表列定义行中提取 MySQL 风格 COMMENT '...'（支持 '' 转义单引号） */
+  function extractDdlColumnComment(line) {
+    const m = /\bCOMMENT\s*'/i.exec(line);
+    if (!m) {
+      return "";
+    }
+    let i = m.index + m[0].length;
+    let s = "";
+    while (i < line.length) {
+      if (line[i] === "\\" && i + 1 < line.length) {
+        s += line[i + 1];
+        i += 2;
+        continue;
+      }
+      if (line[i] === "'" && line[i + 1] === "'") {
+        s += "'";
+        i += 2;
+        continue;
+      }
+      if (line[i] === "'") {
+        return s;
+      }
+      s += line[i];
+      i++;
+    }
+    return s;
+  }
+
   function parseDDL(text) {
     const tables = [];
     let searchFrom = 0;
@@ -734,7 +842,8 @@ CREATE TABLE orders (
         const afterCol = line.slice(colMatch[0].length);
         const tr = /^\s*((?:[A-Za-z][A-Za-z0-9_]*)(?:\s*\(\s*[^()]*\s*\))?)/i.exec(afterCol);
         const typ = tr && tr[1] ? tr[1].trim() : "unknown";
-        fields.push({ name: colName, type: typ || "unknown" });
+        const cmt = extractDdlColumnComment(line).trim();
+        fields.push({ name: colName, type: typ || "unknown", comment: cmt || "" });
       }
       if (fields.length) {
         tables.push({ name: tableName, fields });
@@ -1172,6 +1281,7 @@ CREATE TABLE orders (
   elListeners();
   renderTemplateButtons();
   setupDrag();
+  loadSchemaFromStorage();
   renderSchema();
 
   function elListeners() {
@@ -1182,6 +1292,7 @@ CREATE TABLE orders (
         state.groupBy = null;
         if (!state.whereRows.length) state.whereRows = [{ table: tables[0].name, field: tables[0].fields[0] ? tables[0].fields[0].name : "", op: "=", value: "" }];
         renderSchema();
+        saveSchemaToStorage();
         els.copyStatus.textContent = "已解析 " + tables.length + " 张表";
         setTimeout(() => (els.copyStatus.textContent = ""), 2000);
       } catch (e) {
@@ -1199,6 +1310,7 @@ CREATE TABLE orders (
       state.groupBy = null;
       state.whereRows = [];
       renderSchema();
+      clearSchemaStorage();
     });
     els.addManualTable.addEventListener("click", () => {
       const name = (els.manualTable.value || "").trim();
@@ -1209,8 +1321,47 @@ CREATE TABLE orders (
       const lines = (els.manualFields.value || "").split("\n");
       const fields = [];
       for (const line of lines) {
-        const p = line.trim().split(/\s+/);
-        if (p[0]) fields.push({ name: p[0], type: p[1] || "text" });
+        const raw = line.trim();
+        if (!raw) {
+          continue;
+        }
+        let name = "";
+        let type = "text";
+        let comment = "";
+        if (raw.indexOf("\t") !== -1) {
+          const p = raw.split("\t").map((x) => x.trim());
+          if (p.length >= 3 && p[0]) {
+            name = p[0];
+            type = p[1] || "text";
+            comment = p.slice(2).join("\t");
+          } else if (p.length === 2 && p[0]) {
+            name = p[0];
+            type = p[1] || "text";
+          } else if (p.length === 1 && p[0]) {
+            name = p[0];
+          }
+        } else if (/\s\|\s/.test(raw)) {
+          const segs = raw.split(/\s\|\s/);
+          const left = (segs[0] || "").trim();
+          comment = segs
+            .slice(1)
+            .join(" | ")
+            .trim();
+          const sp = left.split(/\s+/).filter(Boolean);
+          if (sp[0]) {
+            name = sp[0];
+            type = sp.length > 1 ? sp.slice(1).join(" ") : "text";
+          }
+        } else {
+          const p = raw.split(/\s+/).filter(Boolean);
+          if (p[0]) {
+            name = p[0];
+            type = p[1] || "text";
+          }
+        }
+        if (name) {
+          fields.push({ name, type, comment: comment || "" });
+        }
       }
       if (!fields.length) {
         alert("请至少填写一个字段");
@@ -1223,6 +1374,7 @@ CREATE TABLE orders (
       els.manualTable.value = "";
       els.manualFields.value = "";
       renderSchema();
+      saveSchemaToStorage();
     });
     els.fromTable.addEventListener("change", () => {
       syncOrderFieldOptions();
