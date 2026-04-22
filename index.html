@@ -115,6 +115,9 @@
     .btn-ghost:hover { background: #d9e8fc; }
     .btn-sm { padding: 0.3rem 0.6rem; font-size: 0.75rem; }
     .row-btns { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem; }
+    .from-table-box { display: flex; flex-direction: column; gap: 0.35rem; max-height: 12rem; overflow: auto; padding: 0.2rem 0; }
+    .from-table-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.95rem; cursor: pointer; }
+    .from-table-hint { font-size: 0.8rem; opacity: 0.9; margin: 0.25rem 0 0 0; }
     .table-list { margin-top: 0.5rem; }
     .table-block {
       border: 1px solid var(--border);
@@ -309,9 +312,9 @@
         </div>
         <div class="card">
           <h3>主表 <span class="type-badge">FROM / INTO / UPDATE</span></h3>
-          <select id="fromTable">
-            <option value="">先定义表结构</option>
-          </select>
+          <label class="hint">可多选：SELECT 为 <code>FROM t1, t2, …</code>（可配合联表）。INSERT / UPDATE / DELETE 仅对<strong>列表中第一个</strong>选中的表生成。</label>
+          <div class="from-table-box" id="fromTableList" aria-label="主表多选"></div>
+          <p class="from-table-hint empty-msg" id="fromTableEmpty" style="display: none">暂无表，请先定义表结构。</p>
         </div>
         <div id="panelSelect">
           <div class="card">
@@ -493,6 +496,8 @@
       leftField: "",
       rightField: "",
     }),
+    /** 主表（表键，顺序与左侧列表/勾选顺序一致） */
+    fromTableKeys: /** @type {string[]} */ ([]),
   };
 
   const els = {
@@ -506,7 +511,8 @@
     addManualTable: document.getElementById("addManualTable"),
     schemaEmpty: document.getElementById("schemaEmpty"),
     tableList: document.getElementById("tableList"),
-    fromTable: document.getElementById("fromTable"),
+    fromTableList: document.getElementById("fromTableList"),
+    fromTableEmpty: document.getElementById("fromTableEmpty"),
     selectDrop: document.getElementById("selectDrop"),
     selectChips: document.getElementById("selectChips"),
     selectDropHint: document.getElementById("selectDropHint"),
@@ -617,6 +623,51 @@ CREATE TABLE orders (
     return quoteIdent(t.name);
   }
 
+  function getFromTableKeys() {
+    return state.fromTableKeys.filter((k) => state.tables.some((t) => tableKey(t) === k));
+  }
+  function getPrimaryFromKey() {
+    const keys = getFromTableKeys();
+    return keys[0] || "";
+  }
+  function normalizeFromTableKeys() {
+    const valid = new Set(state.tables.map((t) => tableKey(t)));
+    state.fromTableKeys = state.fromTableKeys.filter((k) => valid.has(k));
+    if (!state.fromTableKeys.length && state.tables.length) {
+      state.fromTableKeys = [tableKey(state.tables[0])];
+    }
+  }
+  function setFromTableKeys(keys) {
+    state.fromTableKeys = (keys || []).filter(Boolean);
+    normalizeFromTableKeys();
+    renderFromTableCheckboxes();
+  }
+  function renderFromTableCheckboxes() {
+    if (!els.fromTableList) {
+      return;
+    }
+    if (!state.tables.length) {
+      state.fromTableKeys = [];
+      els.fromTableList.innerHTML = "";
+      if (els.fromTableEmpty) {
+        els.fromTableEmpty.style.display = "block";
+      }
+      return;
+    }
+    if (els.fromTableEmpty) {
+      els.fromTableEmpty.style.display = "none";
+    }
+    normalizeFromTableKeys();
+    const selected = new Set(state.fromTableKeys);
+    els.fromTableList.innerHTML = state.tables
+      .map((t) => {
+        const k = tableKey(t);
+        const checked = selected.has(k) ? " checked" : "";
+        return `<label class="from-table-item"><input type="checkbox" class="from-table-cb" data-tkey="${escapeHtml(k)}"${checked} /> ${escapeHtml(tableLabel(t))}</label>`;
+      })
+      .join("");
+  }
+
   function isValidPersistedField(f) {
     return !!(f && typeof f.name === "string" && f.name && typeof f.type === "string");
   }
@@ -667,6 +718,7 @@ CREATE TABLE orders (
       const t0 = state.tables[0];
       const f0 = t0.fields[0] ? t0.fields[0].name : "";
       state.whereRows = [{ table: tableKey(t0), field: f0, op: "=", value: "" }];
+      state.fromTableKeys = [tableKey(t0)];
       return true;
     } catch (_) {
       clearSchemaStorage();
@@ -702,7 +754,8 @@ CREATE TABLE orders (
     try {
       const q = {
         sqlMode: getSqlMode(),
-        fromTable: els.fromTable.value,
+        fromTable: getPrimaryFromKey(),
+        fromTables: state.fromTableKeys.slice(),
         selectFields: state.selectFields,
         useStar: state.useStar,
         groupBy: state.groupBy,
@@ -740,8 +793,12 @@ CREATE TABLE orders (
       if (q.sqlMode && els.sqlMode) {
         els.sqlMode.value = q.sqlMode;
       }
-      if (q.fromTable && els.fromTable) {
-        els.fromTable.value = q.fromTable;
+      if (Array.isArray(q.fromTables) && q.fromTables.length) {
+        state.fromTableKeys = q.fromTables.slice();
+        normalizeFromTableKeys();
+      } else if (q.fromTable) {
+        state.fromTableKeys = [q.fromTable];
+        normalizeFromTableKeys();
       }
       if (Array.isArray(q.selectFields)) {
         state.selectFields = q.selectFields;
@@ -794,6 +851,7 @@ CREATE TABLE orders (
       if (q.offsetVal != null && els.offsetVal) {
         els.offsetVal.value = q.offsetVal;
       }
+      renderFromTableCheckboxes();
     } catch (_) {
       clearQueryStorage();
     }
@@ -823,19 +881,23 @@ CREATE TABLE orders (
   }
 
   function syncJoinOptions() {
-    const tname = els.fromTable.value;
+    const allKeys = new Set(getFromTableKeys());
     if (!els.joinTable) {
       return;
     }
     const curJ = els.joinTable.value;
     const opts = state.tables
-      .filter((tb) => tableKey(tb) !== tname)
+      .filter((tb) => !allKeys.has(tableKey(tb)))
       .map((t) => `<option value="${escapeHtml(tableKey(t))}">${escapeHtml(tableLabel(t))}</option>`)
       .join("");
     els.joinTable.innerHTML = '<option value="">选表</option>' + opts;
-    if (curJ && state.tables.some((t) => tableKey(t) === curJ)) {
+    const joinKeys = new Set(state.tables.filter((tb) => !allKeys.has(tableKey(tb))).map((tb) => tableKey(tb)));
+    if (curJ && joinKeys.has(curJ)) {
       els.joinTable.value = curJ;
+    } else {
+      els.joinTable.value = "";
     }
+    const tname = getPrimaryFromKey();
     const t = getTable(tname);
     const jtn = els.joinTable.value;
     const jt = getTable(jtn);
@@ -863,7 +925,7 @@ CREATE TABLE orders (
     if (!els.insertRowsBox) {
       return;
     }
-    const tname = els.fromTable.value;
+    const tname = getPrimaryFromKey();
     const t = getTable(tname);
     if (!state.insertRows.length) {
       state.insertRows = [{ field: "", value: "" }];
@@ -914,7 +976,7 @@ CREATE TABLE orders (
     if (!els.setRowsBox) {
       return;
     }
-    const tname = els.fromTable.value;
+    const tname = getPrimaryFromKey();
     const t = getTable(tname);
     if (!state.setRows.length) {
       state.setRows = [{ field: "", value: "" }];
@@ -1007,14 +1069,8 @@ CREATE TABLE orders (
         .join("");
     }
 
-    const prevFrom = els.fromTable.value;
-    els.fromTable.innerHTML =
-      '<option value="">选择主表</option>' +
-      state.tables.map((t) => `<option value="${escapeHtml(tableKey(t))}">${escapeHtml(tableLabel(t))}</option>`).join("");
-
-    if (state.tables.some((t) => tableKey(t) === prevFrom)) els.fromTable.value = prevFrom;
-    else if (state.tables.length) els.fromTable.value = tableKey(state.tables[0]);
-
+    normalizeFromTableKeys();
+    renderFromTableCheckboxes();
     refreshBuilderUI();
   }
 
@@ -1345,7 +1401,7 @@ CREATE TABLE orders (
   }
 
   function syncOrderFieldOptions() {
-    const tname = els.fromTable.value;
+    const tname = getPrimaryFromKey();
     const t = getTable(tname);
     const cur = els.orderField.value;
     if (!t) {
@@ -1424,7 +1480,7 @@ CREATE TABLE orders (
   }
 
   function renderWhereRows() {
-    const tname = els.fromTable.value;
+    const tname = getPrimaryFromKey();
     const t = getTable(tname);
     if (!state.whereRows.length) state.whereRows.push({ table: tname || "", field: t && t.fields[0] ? t.fields[0].name : "", op: "=", value: "" });
 
@@ -1483,7 +1539,7 @@ CREATE TABLE orders (
       });
       wRm.addEventListener("click", () => {
         state.whereRows.splice(i, 1);
-        if (!state.whereRows.length) state.whereRows.push({ table: els.fromTable.value, field: "", op: "=", value: "" });
+        if (!state.whereRows.length) state.whereRows.push({ table: getPrimaryFromKey(), field: "", op: "=", value: "" });
         renderWhereRows();
         updateSql();
       });
@@ -1556,28 +1612,55 @@ CREATE TABLE orders (
     return parts;
   }
 
-  function buildFromWithJoin(mainKey) {
-    const tMain = getTable(mainKey);
-    let fromPart = tMain ? quoteTableRef(tMain) : quoteIdent(mainKey);
+  function buildFromWithJoin() {
+    const allKeys = getFromTableKeys();
+    if (!allKeys.length) {
+      return "";
+    }
+    const firstKey = allKeys[0];
+    const tMain = getTable(firstKey);
+    if (!tMain) {
+      return quoteIdent(firstKey);
+    }
     if (els.joinEnabled && els.joinEnabled.checked) {
-      const jtn = els.joinTable.value;
+      const jtn = els.joinTable && els.joinTable.value;
       const tJ = jtn ? getTable(jtn) : null;
-      if (jtn && tJ && tMain) {
+      if (jtn && tJ) {
         const jty = (els.joinType && els.joinType.value) || "INNER";
         const lf = els.joinLeftField && els.joinLeftField.value;
         const rf = els.joinRightField && els.joinRightField.value;
         if (lf && rf) {
-          fromPart = quoteTableRef(tMain) + "\n" + jty + " JOIN " + quoteTableRef(tJ) + " ON " + fullCol(mainKey, lf) + " = " + fullCol(jtn, rf);
+          let fromPart = quoteTableRef(tMain) + "\n" + jty + " JOIN " + quoteTableRef(tJ) + " ON " + fullCol(firstKey, lf) + " = " + fullCol(jtn, rf);
+          const rest = allKeys.filter((k) => k !== firstKey && k !== jtn);
+          if (rest.length) {
+            fromPart +=
+              ",\n" +
+              rest
+                .map((k) => {
+                  const tw = getTable(k);
+                  return tw ? quoteTableRef(tw) : quoteIdent(k);
+                })
+                .join(",\n");
+          }
+          return fromPart;
         }
       }
     }
-    return fromPart;
+    if (allKeys.length === 1) {
+      return quoteTableRef(tMain);
+    }
+    return allKeys
+      .map((k) => {
+        const t = getTable(k);
+        return t ? quoteTableRef(t) : quoteIdent(k);
+      })
+      .join(",\n");
   }
 
   function buildSelectSql() {
-    const tname = els.fromTable.value;
+    const tname = getPrimaryFromKey();
     if (!tname) {
-      return "-- 请在「主表」中选择表名";
+      return "-- 请在「主表」中至少选择一张表";
     }
     const t = getTable(tname);
     if (!t) {
@@ -1593,7 +1676,7 @@ CREATE TABLE orders (
       selectList = quoteTableRef(t) + ".*";
     }
 
-    let sql = "SELECT " + selectList + "\nFROM " + buildFromWithJoin(tname);
+    let sql = "SELECT " + selectList + "\nFROM " + buildFromWithJoin();
     const whereParts = buildWhereClauses();
     if (whereParts.length) {
       sql += "\nWHERE " + whereParts.join(" AND ");
@@ -1622,7 +1705,7 @@ CREATE TABLE orders (
   }
 
   function buildInsertSql() {
-    const tname = els.fromTable.value;
+    const tname = getPrimaryFromKey();
     if (!tname) {
       return "-- 请选择主表";
     }
@@ -1643,7 +1726,7 @@ CREATE TABLE orders (
   }
 
   function buildUpdateSql() {
-    const tname = els.fromTable.value;
+    const tname = getPrimaryFromKey();
     if (!tname) {
       return "-- 请选择主表";
     }
@@ -1670,7 +1753,7 @@ CREATE TABLE orders (
   }
 
   function buildDeleteSql() {
-    const tname = els.fromTable.value;
+    const tname = getPrimaryFromKey();
     if (!tname) {
       return "-- 请选择主表";
     }
@@ -1722,10 +1805,9 @@ CREATE TABLE orders (
       alert("请先导入或添加表结构。");
       return;
     }
-    els.fromTable.value = tableKey(main);
+    setFromTableKeys([tableKey(main)]);
     syncOrderFieldOptions();
     const t = main;
-    const tk = (tb) => tableKey(tb);
     if (els.sqlMode) {
       els.sqlMode.value = "SELECT";
     }
@@ -1815,7 +1897,7 @@ CREATE TABLE orders (
         alert("联表示例需要同时存在含 users 与 orders 的表；可先点击「载入示例」。");
         return;
       }
-      els.fromTable.value = tableKey(o);
+      setFromTableKeys([tableKey(o), tableKey(u)]);
       state.useStar = false;
       state.selectFields = [
         fullColT(o, o.fields[0] ? o.fields[0].name : "id"),
@@ -1892,6 +1974,14 @@ CREATE TABLE orders (
     }
     if (/(UNION|WITH\s|CTE|子查询|窗口|ROW_NUMBER|MERGE|多语句)/i.test(s)) {
       return "ADVANCED";
+    }
+    return null;
+  }
+
+  /** 未命中上则规则时，按常见“查询/统计”用语补判为 SELECT */
+  function detectNlModeSelectFallback(s) {
+    if (/(^查询|查一下|列出|显示|统计|求|看.*数据|几行|共多少|有多少|^SELECT\s|\bfrom\b|where\b)/i.test(s)) {
+      return "SELECT";
     }
     return null;
   }
@@ -2152,20 +2242,20 @@ CREATE TABLE orders (
       alert("请先定义表结构");
       return;
     }
-    const byName = nlGuessTableName(raw);
-    if (byName) {
-      els.fromTable.value = byName;
-    }
-    const g = detectNlMode(raw);
+    const g = detectNlMode(raw) || detectNlModeSelectFallback(raw);
     if (g) {
       els.sqlMode.value = g;
     }
     syncSqlModePanels();
-    let tname = els.fromTable.value;
+    const byName = nlGuessTableName(raw);
+    if (byName) {
+      setFromTableKeys([byName]);
+    }
+    let tname = getPrimaryFromKey();
     let t = getTable(tname);
     if (!t) {
-      els.fromTable.value = tableKey(state.tables[0]);
-      tname = els.fromTable.value;
+      setFromTableKeys([tableKey(state.tables[0])]);
+      tname = getPrimaryFromKey();
       t = getTable(tname);
     }
     if (!t) {
@@ -2260,6 +2350,7 @@ CREATE TABLE orders (
       if (els.joinPanel) {
         els.joinPanel.classList.add("is-hidden");
       }
+      state.fromTableKeys = [];
       renderSchema();
       clearSchemaStorage();
       clearQueryStorage();
@@ -2333,10 +2424,19 @@ CREATE TABLE orders (
       renderSchema();
       saveSchemaToStorage();
     });
-    els.fromTable.addEventListener("change", () => {
-      state.whereRows = state.whereRows.map((r) => ({ ...r, table: els.fromTable.value }));
-      refreshBuilderUI();
-    });
+    if (els.fromTableList) {
+      els.fromTableList.addEventListener("change", () => {
+        const keys = Array.from(els.fromTableList.querySelectorAll(".from-table-cb:checked")).map(
+          (el) => el.getAttribute("data-tkey") || ""
+        );
+        state.fromTableKeys = keys;
+        normalizeFromTableKeys();
+        renderFromTableCheckboxes();
+        syncOrderFieldOptions();
+        syncJoinOptions();
+        updateSql();
+      });
+    }
     if (els.sqlMode) {
       els.sqlMode.addEventListener("change", () => {
         syncSqlModePanels();
@@ -2391,7 +2491,7 @@ CREATE TABLE orders (
       updateSql();
     });
     els.addWhere.addEventListener("click", () => {
-      const tname = els.fromTable.value;
+      const tname = getPrimaryFromKey();
       const t = getTable(tname);
       state.whereRows.push({ table: tname, field: t && t.fields[0] ? t.fields[0].name : "", op: "=", value: "" });
       renderWhereRows();
