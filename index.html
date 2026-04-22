@@ -211,6 +211,25 @@
       min-height: 200px;
     }
     .glossary { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.75rem; }
+    .is-hidden { display: none !important; }
+    .insert-row, .set-row {
+      display: grid;
+      grid-template-columns: 1fr 1.2fr auto;
+      gap: 0.4rem;
+      align-items: center;
+      margin-bottom: 0.45rem;
+    }
+    .join-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+    }
+    @media (max-width: 600px) {
+      .insert-row, .set-row { grid-template-columns: 1fr; }
+      .join-grid { grid-template-columns: 1fr; }
+    }
+    textarea#customSql { min-height: 140px; }
     .glossary dt { font-weight: 600; color: var(--text); margin-top: 0.35rem; }
     .template-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 0.4rem; }
     .template-btn {
@@ -242,10 +261,12 @@
       <div class="col-body">
         <div class="card">
           <h3>从 DDL 导入 <span class="type-badge">支持 CREATE TABLE</span></h3>
-          <label class="hint">粘贴 MySQL / PostgreSQL 等风格 DDL，解析表名、列、类型，MySQL 列上 <code>COMMENT '…'</code> 会一并导入为注释</label>
-          <textarea id="ddlInput" placeholder="例：&#10;CREATE TABLE users (&#10;  id INT PRIMARY KEY,&#10;  name VARCHAR(100),&#10;  created_at TIMESTAMP&#10;);"></textarea>
+          <label class="hint"
+            >可多次粘贴、多次点「解析 DDL」：新表会<strong>追加</strong>到左侧；若<strong>同一库+表名</strong>已存在则<strong>覆盖</strong>。支持 <code>db.table</code> 或
+            <code>`db`.`table`</code>，不同库下可有相同短表名。支持一次粘贴内含多张 <code>CREATE TABLE</code>。</label>
+          <textarea id="ddlInput" placeholder="可反复导入：先粘表 A 解析，再粘表 B 解析… 也可一次粘贴多个 CREATE TABLE；"></textarea>
           <div class="row-btns">
-            <button type="button" class="btn btn-primary" id="parseDdl">解析 DDL</button>
+            <button type="button" class="btn btn-primary" id="parseDdl">解析并合并</button>
             <button type="button" class="btn btn-ghost" id="loadSampleDdl">载入示例</button>
             <button type="button" class="btn btn-ghost" id="clearSchema">清空表结构</button>
           </div>
@@ -254,6 +275,8 @@
           <h3>手动添加表与字段 <span class="type-badge">可选</span></h3>
           <label class="hint">表名</label>
           <input type="text" id="manualTable" placeholder="orders" />
+          <label class="hint" style="margin-top: 0.5rem">库 / schema（可选，与表名一起唯一标识；留空与仅表名时兼容旧数据）</label>
+          <input type="text" id="manualDb" placeholder="例如 proddb 或 public" />
           <label class="hint" style="margin-top:0.5rem">字段列表：每行「列名 类型」；可写注释——用 <kbd>Tab</kbd> 分三列（列名、类型、注释），或「列名 类型 <kbd>|</kbd> 注释」</label>
           <textarea id="manualFields" placeholder="id&#9;int&#9;主键&#10;user_id int&#10;status tinyint | 状态 0/1"></textarea>
           <div class="row-btns">
@@ -269,70 +292,139 @@
       </div>
     </section>
 
-    <!-- 中：查询条件 -->
-    <section class="column" aria-label="查询构建">
-      <div class="col-title">查询条件与字段</div>
+    <!-- 中：SQL 构建 -->
+    <section class="column" aria-label="SQL 构建">
+      <div class="col-title">SQL 构建</div>
       <div class="col-body">
         <div class="card">
-          <h3>主表 <span class="type-badge">FROM</span></h3>
+          <h3>SQL 类型 <span class="type-badge">SELECT / DML / 自定义</span></h3>
+          <label class="hint">选择要生成的语句类型；INSERT/UPDATE/DELETE 使用下方「主表」与条件/赋值区</label>
+          <select id="sqlMode">
+            <option value="SELECT">SELECT 查询</option>
+            <option value="INSERT">INSERT 插入</option>
+            <option value="UPDATE">UPDATE 更新</option>
+            <option value="DELETE">DELETE 删除</option>
+            <option value="ADVANCED">自定义 / 复杂 SQL</option>
+          </select>
+        </div>
+        <div class="card">
+          <h3>主表 <span class="type-badge">FROM / INTO / UPDATE</span></h3>
           <select id="fromTable">
             <option value="">先定义表结构</option>
           </select>
         </div>
-        <div class="card">
-          <h3>SELECT 字段 <span class="type-badge">拖拽表字段到下方区域</span></h3>
-          <div class="drop-zone" id="selectDrop" data-target="select">
-            <div class="drop-hint" id="selectDropHint">将左侧字段拖入此处；留空则使用 <code>*</code></div>
-            <div class="chips" id="selectChips"></div>
+        <div id="panelSelect">
+          <div class="card">
+            <h3>SELECT 字段 <span class="type-badge">拖拽表字段到下方区域</span></h3>
+            <div class="drop-zone" id="selectDrop" data-target="select">
+              <div class="drop-hint" id="selectDropHint">将左侧字段拖入此处；留空则使用 <code>*</code></div>
+              <div class="chips" id="selectChips"></div>
+            </div>
+            <div class="row-btns">
+              <button type="button" class="btn btn-ghost btn-sm" id="clearSelect">清空字段</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="addStar">使用 * 全部列</button>
+            </div>
           </div>
-          <div class="row-btns">
-            <button type="button" class="btn btn-ghost btn-sm" id="clearSelect">清空字段</button>
-            <button type="button" class="btn btn-ghost btn-sm" id="addStar">使用 * 全部列</button>
+          <div class="card" id="cardJoin">
+            <h3>联表 JOIN <span class="type-badge">可选</span></h3>
+            <label class="hint"><input type="checkbox" id="joinEnabled" /> 启用（INNER / LEFT / RIGHT）</label>
+            <div id="joinPanel" class="is-hidden join-grid">
+              <div>
+                <label class="hint">关联表</label>
+                <select id="joinTable"><option value="">选表</option></select>
+              </div>
+              <div>
+                <label class="hint">联接方式</label>
+                <select id="joinType">
+                  <option value="INNER">INNER JOIN</option>
+                  <option value="LEFT">LEFT JOIN</option>
+                  <option value="RIGHT">RIGHT JOIN</option>
+                </select>
+              </div>
+              <div>
+                <label class="hint">主表列 (ON 左)</label>
+                <select id="joinLeftField"><option value="">列</option></select>
+              </div>
+              <div>
+                <label class="hint">关联表列 (ON 右)</label>
+                <select id="joinRightField"><option value="">列</option></select>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <h3>排序与分页 <span class="type-badge">仅 SELECT</span></h3>
+            <div class="where-row" style="grid-template-columns: 1fr 1fr 1fr 1fr;">
+              <div>
+                <label class="hint">ORDER BY 字段</label>
+                <select id="orderField"><option value="">不排序</option></select>
+              </div>
+              <div>
+                <label class="hint">方向</label>
+                <select id="orderDir">
+                  <option value="ASC">ASC 升序</option>
+                  <option value="DESC">DESC 降序</option>
+                </select>
+              </div>
+              <div>
+                <label class="hint">LIMIT</label>
+                <input type="number" id="limitVal" min="0" placeholder="空表示不限" />
+              </div>
+              <div>
+                <label class="hint">OFFSET</label>
+                <input type="number" id="offsetVal" min="0" placeholder="0" />
+              </div>
+            </div>
           </div>
         </div>
-        <div class="card">
-          <h3>WHERE 条件 <span class="type-badge">AND 连接</span></h3>
-          <div id="whereRows"></div>
-          <div class="row-btns">
-            <button type="button" class="btn btn-primary btn-sm" id="addWhere">+ 条件行</button>
-          </div>
-        </div>
-        <div class="card">
-          <h3>排序与分页</h3>
-          <div class="where-row" style="grid-template-columns: 1fr 1fr 1fr 1fr;">
-            <div>
-              <label class="hint">ORDER BY 字段</label>
-              <select id="orderField"><option value="">不排序</option></select>
-            </div>
-            <div>
-              <label class="hint">方向</label>
-              <select id="orderDir">
-                <option value="ASC">ASC 升序</option>
-                <option value="DESC">DESC 降序</option>
-              </select>
-            </div>
-            <div>
-              <label class="hint">LIMIT</label>
-              <input type="number" id="limitVal" min="0" placeholder="空表示不限" />
-            </div>
-            <div>
-              <label class="hint">OFFSET</label>
-              <input type="number" id="offsetVal" min="0" placeholder="0" />
+        <div id="panelInsert" class="is-hidden">
+          <div class="card">
+            <h3>INSERT 列与值 <span class="type-badge">VALUES</span></h3>
+            <label class="hint">每行一列；数值可写 123，字符串可写 文本（自动加引号，也可手写 <code>'a'</code>）</label>
+            <div id="insertRowsBox"></div>
+            <div class="row-btns">
+              <button type="button" class="btn btn-primary btn-sm" id="addInsertRow">+ 列</button>
             </div>
           </div>
         </div>
-        <div class="card">
-          <h3>查询模板库</h3>
-          <p class="empty-msg" style="margin:0 0 0.5rem 0">点击套用常见模式（会覆盖部分中间区设置，可再微调）。</p>
+        <div id="panelSet" class="is-hidden">
+          <div class="card">
+            <h3>UPDATE SET <span class="type-badge">赋值</span></h3>
+            <label class="hint">要更新的列与表达式或常量</label>
+            <div id="setRowsBox"></div>
+            <div class="row-btns">
+              <button type="button" class="btn btn-primary btn-sm" id="addSetRow">+ 赋值</button>
+            </div>
+          </div>
+        </div>
+        <div id="panelWhere">
+          <div class="card">
+            <h3>WHERE 条件 <span class="type-badge">AND 连接</span></h3>
+            <p class="empty-msg" id="whereHint" style="margin:0 0 0.5rem 0">SELECT / UPDATE / DELETE 使用；INSERT 可忽略。</p>
+            <div id="whereRows"></div>
+            <div class="row-btns">
+              <button type="button" class="btn btn-primary btn-sm" id="addWhere">+ 条件行</button>
+            </div>
+          </div>
+        </div>
+        <div id="panelAdvanced" class="is-hidden">
+          <div class="card">
+            <h3>自定义 / 复杂 SQL <span class="type-badge">CTE、UNION、子查询、窗口等</span></h3>
+            <label class="hint">直接编写或在此粘贴大段 SQL，右侧实时预览。可与左侧表结构对照手写。</label>
+            <textarea id="customSql" placeholder="-- 例：&#10;WITH t AS (SELECT * FROM your_table)&#10;SELECT * FROM t;&#10;-- 或 UNION、INSERT ... SELECT、MERGE 等"></textarea>
+          </div>
+        </div>
+        <div class="card" id="cardTemplates">
+          <h3>模板库 <span class="type-badge">查询与 DML</span></h3>
+          <p class="empty-msg" style="margin:0 0 0.5rem 0">点击套用后可在各面板微调。</p>
           <div class="template-grid" id="templateGrid"></div>
         </div>
         <div class="card">
-          <h3>自然语言转 SQL <span class="type-badge">基于当前表与字段解析</span></h3>
-          <label class="hint">用中文或英文描述需求，如：「查询 name 为张三的用户」「按部门分组统计人数」</label>
-          <textarea id="nlInput" style="min-height:72px" placeholder="例：查询所有金额大于 100 的订单，按创建时间降序，只取 10 条"></textarea>
+          <h3>自然语言转 SQL <span class="type-badge">基于当前表/模式解析</span></h3>
+          <label class="hint">可描述：查询/插入/更新/删除；复杂场景可生成骨架并切到「自定义」补充</label>
+          <textarea id="nlInput" style="min-height:88px" placeholder="例：删除 status 为 0 的订单。&#10;向 users 插入 name 为张三、email 为 a@b.com。&#10;将 orders 的 amount 改为 0 且 id=1。&#10;（复杂：合并两个表查询的 UNION 骨架）"></textarea>
           <div class="row-btns">
-            <button type="button" class="btn btn-primary" id="nlToSql">生成到构建区</button>
-            <span class="empty-msg" style="align-self:center">解析规则为启发式，复杂查询请用可视化微调。</span>
+            <button type="button" class="btn btn-primary" id="nlToSql">解析并生成</button>
+            <span class="empty-msg" style="align-self:center">启发式规则，生成后请人工核对，尤其是 DML 与联表。</span>
           </div>
         </div>
       </div>
@@ -361,6 +453,10 @@
             <dd>行级过滤，只保留满足条件的行。</dd>
             <dt>ORDER BY / LIMIT</dt>
             <dd>排序与截断行数，常用于报表与分页。</dd>
+            <dt>INSERT / UPDATE / DELETE</dt>
+            <dd>增删改：INSERT 用列/值，UPDATE 用 SET + WHERE，DELETE 用 WHERE；无 WHERE 的删改极危险，预览中会提示。</dd>
+            <dt>自定义 / 复杂 SQL</dt>
+            <dd>可手写 CTE（WITH）、UNION、子查询、多语句、方言专属语法等；不参与可视化校验。</dd>
           </dl>
         </div>
       </div>
@@ -372,9 +468,11 @@
   "use strict";
 
   /** @typedef {{ name: string, type: string, comment?: string }} Field */
-  /** @typedef {{ name: string, fields: Field[] }} Table */
+  /** @typedef {{ name: string, fields: Field[], db?: string }} Table — db 为库名(PostgreSQL 可为 schema) */
 
   const SCHEMA_STORAGE_KEY = "sql-builder.schema.v1";
+  const QUERY_STORAGE_KEY = "sql-builder.query.v1";
+  let _blockQuerySave = true;
 
   const state = {
     tables: /** @type {Table[]} */ ([]),
@@ -383,6 +481,18 @@
     /** 非空时在生成 SQL 中追加 GROUP BY */
     groupBy: /** @type {string | null} */ (null),
     whereRows: /** @type {{ table: string, field: string, op: string, value: string }[]} */ ([]),
+    /** INSERT: 列 + 值 */
+    insertRows: /** @type {{ field: string, value: string }[]} */ ([{ field: "", value: "" }]),
+    /** UPDATE SET */
+    setRows: /** @type {{ field: string, value: string }[]} */ ([{ field: "", value: "" }]),
+    /** SELECT JOIN */
+    join: /** @type {{ enabled: boolean, table: string, joinType: string, leftField: string, rightField: string }} */ ({
+      enabled: false,
+      table: "",
+      joinType: "INNER",
+      leftField: "",
+      rightField: "",
+    }),
   };
 
   const els = {
@@ -391,6 +501,7 @@
     loadSampleDdl: document.getElementById("loadSampleDdl"),
     clearSchema: document.getElementById("clearSchema"),
     manualTable: document.getElementById("manualTable"),
+    manualDb: document.getElementById("manualDb"),
     manualFields: document.getElementById("manualFields"),
     addManualTable: document.getElementById("addManualTable"),
     schemaEmpty: document.getElementById("schemaEmpty"),
@@ -413,6 +524,23 @@
     sqlOut: document.getElementById("sqlOut"),
     copySql: document.getElementById("copySql"),
     copyStatus: document.getElementById("copyStatus"),
+    sqlMode: document.getElementById("sqlMode"),
+    panelSelect: document.getElementById("panelSelect"),
+    panelInsert: document.getElementById("panelInsert"),
+    panelSet: document.getElementById("panelSet"),
+    panelWhere: document.getElementById("panelWhere"),
+    panelAdvanced: document.getElementById("panelAdvanced"),
+    customSql: document.getElementById("customSql"),
+    insertRowsBox: document.getElementById("insertRowsBox"),
+    addInsertRow: document.getElementById("addInsertRow"),
+    setRowsBox: document.getElementById("setRowsBox"),
+    addSetRow: document.getElementById("addSetRow"),
+    joinEnabled: document.getElementById("joinEnabled"),
+    joinPanel: document.getElementById("joinPanel"),
+    joinTable: document.getElementById("joinTable"),
+    joinType: document.getElementById("joinType"),
+    joinLeftField: document.getElementById("joinLeftField"),
+    joinRightField: document.getElementById("joinRightField"),
   };
 
   const SAMPLE_DDL = `CREATE TABLE users (
@@ -449,6 +577,11 @@ CREATE TABLE orders (
     { id: "count_all", name: "总行数", desc: "COUNT(*)" },
     { id: "group_count", name: "分组计数", desc: "GROUP BY + COUNT" },
     { id: "join_orders_users", name: "两表联查", desc: "INNER JOIN 示例" },
+    { id: "insert_row", name: "插入一行", desc: "INSERT" },
+    { id: "update_where", name: "条件更新", desc: "UPDATE … WHERE" },
+    { id: "delete_where", name: "条件删除", desc: "DELETE … WHERE" },
+    { id: "left_join", name: "LEFT JOIN", desc: "联表查询" },
+    { id: "union_all", name: "UNION ALL", desc: "自定义多段" },
   ];
 
   function quoteIdent(s) {
@@ -456,11 +589,47 @@ CREATE TABLE orders (
     return s;
   }
 
+  /** 库/模式 + 表名 在界面与下拉中的唯一键（旧数据无 db 时即为表名） */
+  function tableKey(t) {
+    if (!t || !t.name) {
+      return "";
+    }
+    const d = t.db && String(t.db).trim();
+    return d ? d + "\x1f" + t.name : t.name;
+  }
+  /** 仅用于展示，如 proddb.users 或 users */
+  function tableLabel(t) {
+    if (!t || !t.name) {
+      return "";
+    }
+    const d = t.db && String(t.db).trim();
+    return d ? d + "." + t.name : t.name;
+  }
+  /** 生成 `db`.`table` 或 `table` */
+  function quoteTableRef(t) {
+    if (!t || !t.name) {
+      return '""';
+    }
+    const d = t.db && String(t.db).trim();
+    if (d) {
+      return quoteIdent(d) + "." + quoteIdent(t.name);
+    }
+    return quoteIdent(t.name);
+  }
+
   function isValidPersistedField(f) {
     return !!(f && typeof f.name === "string" && f.name && typeof f.type === "string");
   }
   function isValidPersistedTable(t) {
-    return !!(t && typeof t.name === "string" && t.name && Array.isArray(t.fields) && t.fields.length && t.fields.every(isValidPersistedField));
+    return !!(
+      t &&
+      typeof t.name === "string" &&
+      t.name &&
+      Array.isArray(t.fields) &&
+      t.fields.length &&
+      t.fields.every(isValidPersistedField) &&
+      (t.db === undefined || t.db === null || typeof t.db === "string")
+    );
   }
   function saveSchemaToStorage() {
     try {
@@ -488,13 +657,16 @@ CREATE TABLE orders (
         clearSchemaStorage();
         return false;
       }
-      state.tables = data;
+      state.tables = data.map((tb) => ({
+        ...tb,
+        db: tb.db != null && String(tb.db).trim() !== "" ? String(tb.db).trim() : "",
+      }));
       state.selectFields = [];
       state.useStar = false;
       state.groupBy = null;
-      const t0 = data[0];
+      const t0 = state.tables[0];
       const f0 = t0.fields[0] ? t0.fields[0].name : "";
-      state.whereRows = [{ table: t0.name, field: f0, op: "=", value: "" }];
+      state.whereRows = [{ table: tableKey(t0), field: f0, op: "=", value: "" }];
       return true;
     } catch (_) {
       clearSchemaStorage();
@@ -502,12 +674,302 @@ CREATE TABLE orders (
     }
   }
 
-  function getTable(tname) {
-    return state.tables.find((t) => t.name === tname);
+  function getTable(tkey) {
+    if (tkey == null || tkey === "") {
+      return undefined;
+    }
+    return (
+      state.tables.find((t) => tableKey(t) === tkey) || state.tables.find((t) => !t.db && t.name === tkey)
+    );
   }
 
-  function fullCol(table, field) {
-    return quoteIdent(table) + "." + quoteIdent(field);
+  function fullCol(tkey, field) {
+    const t = getTable(tkey);
+    if (t) {
+      return quoteTableRef(t) + "." + quoteIdent(field);
+    }
+    return quoteIdent(String(tkey)) + "." + quoteIdent(field);
+  }
+  function fullColT(t, field) {
+    return quoteTableRef(t) + "." + quoteIdent(field);
+  }
+
+  function getSqlMode() {
+    return (els.sqlMode && els.sqlMode.value) || "SELECT";
+  }
+
+  function saveQueryToStorage() {
+    try {
+      const q = {
+        sqlMode: getSqlMode(),
+        fromTable: els.fromTable.value,
+        selectFields: state.selectFields,
+        useStar: state.useStar,
+        groupBy: state.groupBy,
+        whereRows: state.whereRows,
+        insertRows: state.insertRows,
+        setRows: state.setRows,
+        join: {
+          enabled: !!(els.joinEnabled && els.joinEnabled.checked),
+          table: els.joinTable ? els.joinTable.value : "",
+          joinType: els.joinType ? els.joinType.value : "INNER",
+          leftField: els.joinLeftField ? els.joinLeftField.value : "",
+          rightField: els.joinRightField ? els.joinRightField.value : "",
+        },
+        customSql: els.customSql ? els.customSql.value : "",
+        orderField: els.orderField ? els.orderField.value : "",
+        orderDir: els.orderDir ? els.orderDir.value : "ASC",
+        limitVal: els.limitVal ? els.limitVal.value : "",
+        offsetVal: els.offsetVal ? els.offsetVal.value : "",
+      };
+      localStorage.setItem(QUERY_STORAGE_KEY, JSON.stringify(q));
+    } catch (_) {}
+  }
+  function clearQueryStorage() {
+    try {
+      localStorage.removeItem(QUERY_STORAGE_KEY);
+    } catch (_) {}
+  }
+  function loadQueryFromStorage() {
+    try {
+      const raw = localStorage.getItem(QUERY_STORAGE_KEY);
+      if (!raw) {
+        return;
+      }
+      const q = JSON.parse(raw);
+      if (q.sqlMode && els.sqlMode) {
+        els.sqlMode.value = q.sqlMode;
+      }
+      if (q.fromTable && els.fromTable) {
+        els.fromTable.value = q.fromTable;
+      }
+      if (Array.isArray(q.selectFields)) {
+        state.selectFields = q.selectFields;
+      }
+      if (typeof q.useStar === "boolean") {
+        state.useStar = q.useStar;
+      }
+      if (q.groupBy !== undefined) {
+        state.groupBy = q.groupBy;
+      }
+      if (Array.isArray(q.whereRows)) {
+        state.whereRows = q.whereRows;
+      }
+      if (Array.isArray(q.insertRows) && q.insertRows.length) {
+        state.insertRows = q.insertRows;
+      }
+      if (Array.isArray(q.setRows) && q.setRows.length) {
+        state.setRows = q.setRows;
+      }
+      if (q.join && els.joinEnabled) {
+        els.joinEnabled.checked = !!q.join.enabled;
+        if (els.joinPanel) {
+          els.joinPanel.classList.toggle("is-hidden", !q.join.enabled);
+        }
+        if (els.joinTable) {
+          els.joinTable.value = q.join.table || "";
+        }
+        if (els.joinType && q.join.joinType) {
+          els.joinType.value = q.join.joinType;
+        }
+        if (els.joinLeftField) {
+          els.joinLeftField.value = q.join.leftField || "";
+        }
+        if (els.joinRightField) {
+          els.joinRightField.value = q.join.rightField || "";
+        }
+      }
+      if (q.customSql != null && els.customSql) {
+        els.customSql.value = q.customSql;
+      }
+      if (q.orderField != null && els.orderField) {
+        els.orderField.value = q.orderField;
+      }
+      if (q.orderDir && els.orderDir) {
+        els.orderDir.value = q.orderDir;
+      }
+      if (q.limitVal != null && els.limitVal) {
+        els.limitVal.value = q.limitVal;
+      }
+      if (q.offsetVal != null && els.offsetVal) {
+        els.offsetVal.value = q.offsetVal;
+      }
+    } catch (_) {
+      clearQueryStorage();
+    }
+  }
+
+  function syncSqlModePanels() {
+    const m = getSqlMode();
+    if (els.panelSelect) {
+      els.panelSelect.classList.toggle("is-hidden", m !== "SELECT");
+    }
+    if (els.panelInsert) {
+      els.panelInsert.classList.toggle("is-hidden", m !== "INSERT");
+    }
+    if (els.panelSet) {
+      els.panelSet.classList.toggle("is-hidden", m !== "UPDATE");
+    }
+    if (els.panelWhere) {
+      els.panelWhere.classList.toggle("is-hidden", m === "INSERT" || m === "ADVANCED");
+    }
+    if (els.panelAdvanced) {
+      els.panelAdvanced.classList.toggle("is-hidden", m !== "ADVANCED");
+    }
+    const ct = document.getElementById("cardTemplates");
+    if (ct) {
+      ct.classList.toggle("is-hidden", m === "ADVANCED");
+    }
+  }
+
+  function syncJoinOptions() {
+    const tname = els.fromTable.value;
+    if (!els.joinTable) {
+      return;
+    }
+    const curJ = els.joinTable.value;
+    const opts = state.tables
+      .filter((tb) => tableKey(tb) !== tname)
+      .map((t) => `<option value="${escapeHtml(tableKey(t))}">${escapeHtml(tableLabel(t))}</option>`)
+      .join("");
+    els.joinTable.innerHTML = '<option value="">选表</option>' + opts;
+    if (curJ && state.tables.some((t) => tableKey(t) === curJ)) {
+      els.joinTable.value = curJ;
+    }
+    const t = getTable(tname);
+    const jtn = els.joinTable.value;
+    const jt = getTable(jtn);
+    if (els.joinLeftField && t) {
+      const c = els.joinLeftField.value;
+      els.joinLeftField.innerHTML = t.fields.map((f) => `<option value="${f.name}">${f.name}</option>`).join("");
+      if (t.fields.some((f) => f.name === c)) {
+        els.joinLeftField.value = c;
+      } else if (t.fields[0]) {
+        els.joinLeftField.value = t.fields[0].name;
+      }
+    }
+    if (els.joinRightField && jt) {
+      const c = els.joinRightField.value;
+      els.joinRightField.innerHTML = jt.fields.map((f) => `<option value="${f.name}">${f.name}</option>`).join("");
+      if (jt.fields.some((f) => f.name === c)) {
+        els.joinRightField.value = c;
+      } else if (jt.fields[0]) {
+        els.joinRightField.value = jt.fields[0].name;
+      }
+    }
+  }
+
+  function renderInsertRows() {
+    if (!els.insertRowsBox) {
+      return;
+    }
+    const tname = els.fromTable.value;
+    const t = getTable(tname);
+    if (!state.insertRows.length) {
+      state.insertRows = [{ field: "", value: "" }];
+    }
+    els.insertRowsBox.innerHTML = state.insertRows
+      .map(
+        (row, i) => `
+      <div class="insert-row" data-idx="${i}">
+        <select class="i-field">${
+          t
+            ? t.fields
+                .map(
+                  (f) => `<option value="${escapeHtml(f.name)}" ${row.field === f.name ? "selected" : ""}>${escapeHtml(f.name)}</option>`
+                )
+                .join("")
+            : '<option value="">先选主表</option>'
+        }</select>
+        <input type="text" class="i-val" value="${escapeHtml(row.value)}" placeholder="值、NULL 或 表达式" />
+        <button type="button" class="btn btn-ghost btn-sm i-rm" title="删除">×</button>
+      </div>`
+      )
+      .join("");
+    els.insertRowsBox.querySelectorAll(".insert-row").forEach((el) => {
+      const i = +el.getAttribute("data-idx");
+      const fs = el.querySelector(".i-field");
+      const vs = el.querySelector(".i-val");
+      const rm = el.querySelector(".i-rm");
+      fs.addEventListener("change", () => {
+        state.insertRows[i].field = fs.value;
+        updateSql();
+      });
+      vs.addEventListener("input", () => {
+        state.insertRows[i].value = vs.value;
+        updateSql();
+      });
+      rm.addEventListener("click", () => {
+        state.insertRows.splice(i, 1);
+        if (!state.insertRows.length) {
+          state.insertRows.push({ field: "", value: "" });
+        }
+        renderInsertRows();
+        updateSql();
+      });
+    });
+  }
+
+  function renderSetRows() {
+    if (!els.setRowsBox) {
+      return;
+    }
+    const tname = els.fromTable.value;
+    const t = getTable(tname);
+    if (!state.setRows.length) {
+      state.setRows = [{ field: "", value: "" }];
+    }
+    els.setRowsBox.innerHTML = state.setRows
+      .map(
+        (row, i) => `
+      <div class="set-row" data-idx="${i}">
+        <select class="s-field">${
+          t
+            ? t.fields
+                .map(
+                  (f) => `<option value="${escapeHtml(f.name)}" ${row.field === f.name ? "selected" : ""}>${escapeHtml(f.name)}</option>`
+                )
+                .join("")
+            : '<option value="">先选主表</option>'
+        }</select>
+        <input type="text" class="s-val" value="${escapeHtml(row.value)}" placeholder="新值" />
+        <button type="button" class="btn btn-ghost btn-sm s-rm" title="删除">×</button>
+      </div>`
+      )
+      .join("");
+    els.setRowsBox.querySelectorAll(".set-row").forEach((el) => {
+      const i = +el.getAttribute("data-idx");
+      const fs = el.querySelector(".s-field");
+      const vs = el.querySelector(".s-val");
+      const rm = el.querySelector(".s-rm");
+      fs.addEventListener("change", () => {
+        state.setRows[i].field = fs.value;
+        updateSql();
+      });
+      vs.addEventListener("input", () => {
+        state.setRows[i].value = vs.value;
+        updateSql();
+      });
+      rm.addEventListener("click", () => {
+        state.setRows.splice(i, 1);
+        if (!state.setRows.length) {
+          state.setRows.push({ field: "", value: "" });
+        }
+        renderSetRows();
+        updateSql();
+      });
+    });
+  }
+
+  function refreshBuilderUI() {
+    syncSqlModePanels();
+    syncOrderFieldOptions();
+    syncJoinOptions();
+    renderSelectChips();
+    renderWhereRows();
+    renderInsertRows();
+    renderSetRows();
+    updateSql();
   }
 
   function renderSchema() {
@@ -519,8 +981,8 @@ CREATE TABLE orders (
       els.tableList.innerHTML = state.tables
         .map(
           (t) => `
-        <div class="table-block" data-table="${escapeHtml(t.name)}">
-          <div class="table-head"><span>${escapeHtml(t.name)}</span><span class="type-badge">${t.fields.length} 列</span></div>
+        <div class="table-block" data-tkey="${escapeHtml(tableKey(t))}">
+          <div class="table-head"><span>${escapeHtml(tableLabel(t))}</span><span class="type-badge">${t.fields.length} 列</span></div>
           <div class="field-row-head"><span>列名</span><span>类型</span><span>注释</span></div>
           ${t.fields
             .map(
@@ -528,7 +990,9 @@ CREATE TABLE orders (
                 const cmt = (f.comment && String(f.comment).trim()) || "";
                 const tip = "拖到 SELECT 或条件行" + (cmt ? " — " + cmt : "");
                 return `
-            <div class="field-item" draggable="true" data-table="${escapeHtml(t.name)}" data-field="${escapeHtml(f.name)}" data-type="${escapeHtml(f.type)}" data-comment="${escapeHtml(
+            <div class="field-item" draggable="true" data-tkey="${escapeHtml(tableKey(t))}" data-table="${escapeHtml(t.name)}" data-db="${escapeHtml(
+                  t.db || ""
+                )}" data-field="${escapeHtml(f.name)}" data-type="${escapeHtml(f.type)}" data-comment="${escapeHtml(
                   cmt
                 )}" title="${escapeHtml(tip)}">
               <span class="field-name">${escapeHtml(f.name)}</span>
@@ -546,15 +1010,12 @@ CREATE TABLE orders (
     const prevFrom = els.fromTable.value;
     els.fromTable.innerHTML =
       '<option value="">选择主表</option>' +
-      state.tables.map((t) => `<option value="${escapeHtml(t.name)}">${escapeHtml(t.name)}</option>`).join("");
+      state.tables.map((t) => `<option value="${escapeHtml(tableKey(t))}">${escapeHtml(tableLabel(t))}</option>`).join("");
 
-    if (state.tables.some((t) => t.name === prevFrom)) els.fromTable.value = prevFrom;
-    else if (state.tables.length) els.fromTable.value = state.tables[0].name;
+    if (state.tables.some((t) => tableKey(t) === prevFrom)) els.fromTable.value = prevFrom;
+    else if (state.tables.length) els.fromTable.value = tableKey(state.tables[0]);
 
-    syncOrderFieldOptions();
-    renderSelectChips();
-    renderWhereRows();
-    updateSql();
+    refreshBuilderUI();
   }
 
   function escapeHtml(s) {
@@ -718,14 +1179,13 @@ CREATE TABLE orders (
     return out;
   }
 
-  function parseDdlTableNameAndOpenParen(text, fromIdx) {
-    const m = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?/i.exec(text.slice(fromIdx));
-    if (!m) return null;
-    let p = fromIdx + m.index + m[0].length;
+  function readDdlIdentifier(text, p) {
     while (p < text.length && /\s/.test(text[p])) {
       p++;
     }
-    let tname = "";
+    if (p >= text.length) {
+      return null;
+    }
     if (text[p] === "`") {
       p++;
       const start = p;
@@ -735,37 +1195,61 @@ CREATE TABLE orders (
           continue;
         }
         if (text[p] === "`") {
-          tname = text.slice(start, p);
-          p++;
-          break;
+          return { name: text.slice(start, p), end: p + 1 };
         }
         p++;
       }
-    } else if (text[p] === '"') {
+      return null;
+    }
+    if (text[p] === '"') {
       p++;
       const start = p;
       while (p < text.length && text[p] !== '"') {
         p++;
       }
-      tname = text.slice(start, p);
-      if (p < text.length) p++;
-    } else {
-      const mm = /^\s*([A-Za-z0-9_]+)/.exec(text.slice(p));
-      if (mm) {
-        tname = mm[1];
-        p += mm[0].length;
-      } else {
+      return { name: text.slice(start, p), end: p < text.length ? p + 1 : p };
+    }
+    const mm = /^([A-Za-z0-9_]+)/.exec(text.slice(p));
+    if (!mm) {
+      return null;
+    }
+    return { name: mm[1], end: p + mm[0].length };
+  }
+
+  /** 支持 `db`.`tbl`、db.tbl、tbl */
+  function parseDdlTableNameAndOpenParen(text, fromIdx) {
+    const m = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?/i.exec(text.slice(fromIdx));
+    if (!m) {
+      return null;
+    }
+    let p = fromIdx + m.index + m[0].length;
+    const id1 = readDdlIdentifier(text, p);
+    if (!id1) {
+      return null;
+    }
+    p = id1.end;
+    let db = "";
+    let tableName = id1.name;
+    while (p < text.length && /\s/.test(text[p])) {
+      p++;
+    }
+    if (text[p] === ".") {
+      p++;
+      const id2 = readDdlIdentifier(text, p);
+      if (!id2) {
         return null;
       }
+      db = id1.name;
+      tableName = id2.name;
+      p = id2.end;
     }
-    if (!tname) return null;
     while (p < text.length && /\s/.test(text[p])) {
       p++;
     }
     if (text[p] !== "(") {
       return null;
     }
-    return { tableName: tname, parenIndex: p, next: p + 1 };
+    return { tableName, db, parenIndex: p, next: p + 1 };
   }
 
   function findNextCreateTableStart(text, fromIdx) {
@@ -816,7 +1300,7 @@ CREATE TABLE orders (
         searchFrom = cti + 1;
         continue;
       }
-      const { tableName, parenIndex } = head;
+      const { tableName, parenIndex, db } = head;
       const afterParen = findMatchingRightParen(text, parenIndex);
       if (afterParen < 0) {
         searchFrom = cti + 1;
@@ -846,7 +1330,7 @@ CREATE TABLE orders (
         fields.push({ name: colName, type: typ || "unknown", comment: cmt || "" });
       }
       if (fields.length) {
-        tables.push({ name: tableName, fields });
+        tables.push({ name: tableName, db: db || "", fields });
       }
       let j = afterParen;
       while (j < len && text[j] !== ";") {
@@ -898,9 +1382,9 @@ CREATE TABLE orders (
     });
   }
 
-  function addSelectRef(table, field) {
+  function addSelectRef(tkey, field) {
     state.useStar = false;
-    const ref = fullCol(table, field);
+    const ref = fullCol(tkey, field);
     if (!state.selectFields.includes(ref)) state.selectFields.push(ref);
   }
 
@@ -908,7 +1392,10 @@ CREATE TABLE orders (
     els.tableList.addEventListener("dragstart", (e) => {
       const t = e.target && e.target.closest && e.target.closest(".field-item");
       if (!t) return;
-      e.dataTransfer.setData("text/plain", JSON.stringify({ table: t.dataset.table, field: t.dataset.field }));
+      e.dataTransfer.setData(
+        "text/plain",
+        JSON.stringify({ tkey: t.dataset.tkey, table: t.dataset.table, db: t.dataset.db || "", field: t.dataset.field })
+      );
     });
     const drop = els.selectDrop;
     ["dragenter", "dragover", "dragleave"].forEach((ev) => {
@@ -921,10 +1408,14 @@ CREATE TABLE orders (
     drop.addEventListener("drop", (e) => {
       e.preventDefault();
       drop.classList.remove("dragover");
+      if (getSqlMode() !== "SELECT") {
+        return;
+      }
       try {
         const d = JSON.parse(e.dataTransfer.getData("text/plain") || "{}");
-        if (d.table && d.field) {
-          addSelectRef(d.table, d.field);
+        const tk = d.tkey || (d.db ? d.db + "\x1f" + d.table : d.table);
+        if (tk && d.field) {
+          addSelectRef(tk, d.field);
           renderSelectChips();
           updateSql();
         }
@@ -940,7 +1431,10 @@ CREATE TABLE orders (
     els.whereRows.innerHTML = state.whereRows
       .map((row, i) => {
         const tableOpts = state.tables
-          .map((tb) => `<option value="${tb.name}" ${row.table === tb.name ? "selected" : ""}>${tb.name}</option>`)
+          .map(
+            (tb) =>
+              `<option value="${escapeHtml(tableKey(tb))}" ${row.table === tableKey(tb) ? "selected" : ""}>${escapeHtml(tableLabel(tb))}</option>`
+          )
           .join("");
         const rt = getTable(row.table) || t;
         const fieldOpts = rt
@@ -1014,6 +1508,33 @@ CREATE TABLE orders (
     return "'" + String(s).replace(/'/g, "''") + "'";
   }
 
+  /** DML/SET/INSERT 单值，支持已带引号、NULL、未引号由类型推断 */
+  function formatDmlValue(raw, fieldType) {
+    const n = (raw || "").trim();
+    if (n === "") {
+      return "NULL";
+    }
+    if (n.toUpperCase() === "NULL" || n.toLowerCase() === "null") {
+      return "NULL";
+    }
+    if (/^CURRENT_(TIMESTAMP|DATE|TIME|TIME\(\d+\))\b/i.test(n)) {
+      return n;
+    }
+    if ((n[0] === "'" && n[n.length - 1] === "'") || (n[0] === '"' && n[n.length - 1] === '"')) {
+      return n[0] === '"' ? n : n;
+    }
+    if (n[0] === "`" && n[n.length - 1] === "`") {
+      return n;
+    }
+    if (/^[\d.]+\s*[-+*/]\s*[\d.]+/.test(n)) {
+      return n;
+    }
+    if (/^[A-Za-z_][A-Za-z0-9_.]*\s*\(/i.test(n)) {
+      return n;
+    }
+    return formatValueForSql("=", n, fieldType);
+  }
+
   function buildWhereClauses() {
     const parts = [];
     for (const row of state.whereRows) {
@@ -1035,39 +1556,164 @@ CREATE TABLE orders (
     return parts;
   }
 
+  function buildFromWithJoin(mainKey) {
+    const tMain = getTable(mainKey);
+    let fromPart = tMain ? quoteTableRef(tMain) : quoteIdent(mainKey);
+    if (els.joinEnabled && els.joinEnabled.checked) {
+      const jtn = els.joinTable.value;
+      const tJ = jtn ? getTable(jtn) : null;
+      if (jtn && tJ && tMain) {
+        const jty = (els.joinType && els.joinType.value) || "INNER";
+        const lf = els.joinLeftField && els.joinLeftField.value;
+        const rf = els.joinRightField && els.joinRightField.value;
+        if (lf && rf) {
+          fromPart = quoteTableRef(tMain) + "\n" + jty + " JOIN " + quoteTableRef(tJ) + " ON " + fullCol(mainKey, lf) + " = " + fullCol(jtn, rf);
+        }
+      }
+    }
+    return fromPart;
+  }
+
   function buildSelectSql() {
     const tname = els.fromTable.value;
-    if (!tname) return "-- 请在「主表」中选择表名";
+    if (!tname) {
+      return "-- 请在「主表」中选择表名";
+    }
     const t = getTable(tname);
-    if (!t) return "-- 表不存在";
+    if (!t) {
+      return "-- 表不存在";
+    }
 
     let selectList;
-    if (state.useStar) selectList = quoteIdent(tname) + ".*";
-    else if (state.selectFields.length) selectList = state.selectFields.join(", ");
-    else selectList = quoteIdent(tname) + ".*";
+    if (state.useStar) {
+      selectList = quoteTableRef(t) + ".*";
+    } else if (state.selectFields.length) {
+      selectList = state.selectFields.join(", ");
+    } else {
+      selectList = quoteTableRef(t) + ".*";
+    }
 
-    let sql = "SELECT " + selectList + "\nFROM " + quoteIdent(tname);
+    let sql = "SELECT " + selectList + "\nFROM " + buildFromWithJoin(tname);
     const whereParts = buildWhereClauses();
-    if (whereParts.length) sql += "\nWHERE " + whereParts.join(" AND ");
-    if (state.groupBy) sql += "\nGROUP BY " + fullCol(tname, state.groupBy);
+    if (whereParts.length) {
+      sql += "\nWHERE " + whereParts.join(" AND ");
+    }
+    if (state.groupBy) {
+      sql += "\nGROUP BY " + fullCol(tname, state.groupBy);
+    }
 
     const of = els.orderField.value;
-    if (of) sql += "\nORDER BY " + fullCol(tname, of) + " " + els.orderDir.value;
+    if (of) {
+      sql += "\nORDER BY " + fullCol(tname, of) + " " + els.orderDir.value;
+    }
 
-    const lim = els.limitVal.value.trim();
-    const off = els.offsetVal.value.trim();
-    if (lim !== "") {
+    const lim = (els.limitVal && els.limitVal.value) || "";
+    const off = (els.offsetVal && els.offsetVal.value) || "";
+    if (String(lim).trim() !== "") {
       sql += "\nLIMIT " + parseInt(lim, 10);
-      if (off !== "" && +off > 0) sql += " OFFSET " + parseInt(off, 10);
-    } else if (off !== "" && +off > 0) {
+      if (String(off).trim() !== "" && +off > 0) {
+        sql += " OFFSET " + parseInt(off, 10);
+      }
+    } else if (String(off).trim() !== "" && +off > 0) {
       sql += "\nLIMIT 9223372036854775807 OFFSET " + parseInt(off, 10);
     }
 
     return sql;
   }
 
+  function buildInsertSql() {
+    const tname = els.fromTable.value;
+    if (!tname) {
+      return "-- 请选择主表";
+    }
+    const t = getTable(tname);
+    if (!t) {
+      return "-- 表不存在";
+    }
+    const rows = state.insertRows.filter((r) => r.field);
+    if (!rows.length) {
+      return "-- 请为 INSERT 至少指定一列及值";
+    }
+    const cols = rows.map((r) => quoteIdent(r.field));
+    const vals = rows.map((r) => {
+      const fld = t.fields.find((f) => f.name === r.field);
+      return formatDmlValue(r.value, fld ? fld.type : "");
+    });
+    return "INSERT INTO " + quoteTableRef(t) + " (" + cols.join(", ") + ")\nVALUES (" + vals.join(", ") + ")";
+  }
+
+  function buildUpdateSql() {
+    const tname = els.fromTable.value;
+    if (!tname) {
+      return "-- 请选择主表";
+    }
+    const t = getTable(tname);
+    if (!t) {
+      return "-- 表不存在";
+    }
+    const sets = state.setRows.filter((r) => r.field);
+    if (!sets.length) {
+      return "-- 请至少添加一行 SET 赋值";
+    }
+    const parts = sets.map((r) => {
+      const fld = t.fields.find((f) => f.name === r.field);
+      return fullCol(tname, r.field) + " = " + formatDmlValue(r.value, fld ? fld.type : "");
+    });
+    let sql = "UPDATE " + quoteTableRef(t) + " SET " + parts.join(", ");
+    const whereParts = buildWhereClauses();
+    if (whereParts.length) {
+      sql += "\nWHERE " + whereParts.join(" AND ");
+    } else {
+      sql += "\n-- 未写 WHERE 将更新全表，请谨慎";
+    }
+    return sql;
+  }
+
+  function buildDeleteSql() {
+    const tname = els.fromTable.value;
+    if (!tname) {
+      return "-- 请选择主表";
+    }
+    const tDel = getTable(tname);
+    if (!tDel) {
+      return "-- 表不存在";
+    }
+    let sql = "DELETE FROM " + quoteTableRef(tDel);
+    const whereParts = buildWhereClauses();
+    if (whereParts.length) {
+      sql += "\nWHERE " + whereParts.join(" AND ");
+    } else {
+      sql += "\n-- 警告: 无 WHERE 将删除全表，生产环境请避免";
+    }
+    return sql;
+  }
+
+  function buildAllSql() {
+    const m = getSqlMode();
+    if (m === "INSERT") {
+      return buildInsertSql();
+    }
+    if (m === "UPDATE") {
+      return buildUpdateSql();
+    }
+    if (m === "DELETE") {
+      return buildDeleteSql();
+    }
+    if (m === "ADVANCED") {
+      const c = (els.customSql && els.customSql.value) || "";
+      return c || "-- 在下方「自定义 / 复杂 SQL」文本框中编写（可含 CTE、UNION、子查询、多语句等）";
+    }
+    return buildSelectSql();
+  }
+
   function updateSql() {
-    els.sqlOut.textContent = buildSelectSql();
+    els.sqlOut.textContent = buildAllSql();
+    if (_blockQuerySave) {
+      return;
+    }
+    try {
+      saveQueryToStorage();
+    } catch (_) {}
   }
 
   function applyTemplate(id) {
@@ -1076,28 +1722,91 @@ CREATE TABLE orders (
       alert("请先导入或添加表结构。");
       return;
     }
-    els.fromTable.value = main.name;
+    els.fromTable.value = tableKey(main);
     syncOrderFieldOptions();
     const t = main;
+    const tk = (tb) => tableKey(tb);
+    if (els.sqlMode) {
+      els.sqlMode.value = "SELECT";
+    }
     if (id === "simple_select") {
       state.useStar = true;
       state.selectFields = [];
       state.groupBy = null;
-      state.whereRows = [{ table: t.name, field: t.fields[0] ? t.fields[0].name : "", op: "=", value: "" }];
+      state.whereRows = [{ table: tableKey(t), field: t.fields[0] ? t.fields[0].name : "", op: "=", value: "" }];
     } else if (id === "count_all") {
       state.useStar = false;
       state.groupBy = null;
       state.selectFields = ["COUNT(*) AS cnt"];
-      state.whereRows = [{ table: t.name, field: t.fields[0] ? t.fields[0].name : "", op: "IS NOT NULL", value: "" }];
+      state.whereRows = [{ table: tableKey(t), field: t.fields[0] ? t.fields[0].name : "", op: "IS NOT NULL", value: "" }];
     } else if (id === "group_count") {
       const cat = t.fields.find((f) => /name|dept|type|status|cat|class|group|region/i.test(f.name)) || t.fields[0];
       if (!cat) return;
       state.useStar = false;
       state.groupBy = cat.name;
-      state.selectFields = [fullCol(t.name, cat.name), "COUNT(*) AS cnt"];
+      state.selectFields = [fullColT(t, cat.name), "COUNT(*) AS cnt"];
       state.whereRows = [];
       const secondField = t.fields.find((f) => f.name !== cat.name) || cat;
-      state.whereRows.push({ table: t.name, field: secondField.name, op: "IS NOT NULL", value: "" });
+      state.whereRows.push({ table: tableKey(t), field: secondField.name, op: "IS NOT NULL", value: "" });
+    } else if (id === "insert_row") {
+      if (els.sqlMode) {
+        els.sqlMode.value = "INSERT";
+      }
+      state.insertRows = t.fields
+        .slice(0, Math.min(3, t.fields.length))
+        .map((f) => ({ field: f.name, value: "" }));
+      if (!state.insertRows.length) {
+        state.insertRows = [{ field: "", value: "" }];
+      }
+    } else if (id === "update_where") {
+      if (els.sqlMode) {
+        els.sqlMode.value = "UPDATE";
+      }
+      state.setRows = [{ field: t.fields[0] ? t.fields[0].name : "", value: "" }];
+      state.whereRows = [{ table: tableKey(t), field: t.fields[0] ? t.fields[0].name : "", op: "=", value: "" }];
+    } else if (id === "delete_where") {
+      if (els.sqlMode) {
+        els.sqlMode.value = "DELETE";
+      }
+      state.whereRows = [{ table: tableKey(t), field: t.fields[0] ? t.fields[0].name : "", op: "=", value: "" }];
+    } else if (id === "left_join") {
+      state.useStar = true;
+      state.selectFields = [];
+      state.groupBy = null;
+      if (els.joinEnabled) {
+        els.joinEnabled.checked = true;
+      }
+      if (els.joinPanel) {
+        els.joinPanel.classList.remove("is-hidden");
+      }
+      if (els.joinType) {
+        els.joinType.value = "LEFT";
+      }
+      if (state.tables.length >= 2) {
+        const other = state.tables.find((tb) => tableKey(tb) !== tableKey(t));
+        if (other && els.joinTable) {
+          els.joinTable.value = tableKey(other);
+        }
+        syncJoinOptions();
+      }
+    } else if (id === "union_all") {
+      if (els.sqlMode) {
+        els.sqlMode.value = "ADVANCED";
+      }
+      const t2 = state.tables[1];
+      const c0 = t.fields[0] ? quoteIdent(t.fields[0].name) : "*";
+      if (els.customSql) {
+        els.customSql.value =
+          "(SELECT " +
+          c0 +
+          " FROM " +
+          quoteTableRef(t) +
+          " WHERE 1 = 1)\nUNION ALL\n(SELECT " +
+          c0 +
+          " FROM " +
+          (t2 ? quoteTableRef(t2) : "other_table") +
+          " WHERE 1 = 1);";
+      }
     } else if (id === "join_orders_users") {
       state.groupBy = null;
       const u = state.tables.find((x) => /user/i.test(x.name)) || t;
@@ -1106,12 +1815,15 @@ CREATE TABLE orders (
         alert("联表示例需要同时存在含 users 与 orders 的表；可先点击「载入示例」。");
         return;
       }
-      els.fromTable.value = o.name;
+      els.fromTable.value = tableKey(o);
       state.useStar = false;
       state.selectFields = [
-        fullCol(o.name, o.fields[0] ? o.fields[0].name : "id"),
-        fullCol(u.name, u.fields.find((f) => f.name === "name") ? "name" : u.fields[0].name),
-        fullCol(o.name, o.fields.find((f) => /amount|total|price/i.test(f.name)) ? o.fields.find((f) => /amount|total|price/i.test(f.name)).name : o.fields[0].name),
+        fullColT(o, o.fields[0] ? o.fields[0].name : "id"),
+        fullColT(u, u.fields.find((f) => f.name === "name") ? "name" : u.fields[0].name),
+        fullColT(
+          o,
+          o.fields.find((f) => /amount|total|price/i.test(f.name)) ? o.fields.find((f) => /amount|total|price/i.test(f.name)).name : o.fields[0].name
+        ),
       ];
       const uid = o.fields.find((f) => /user_id|uid/i.test(f.name));
       const joinCol = u.fields.find((f) => f.name === "id");
@@ -1121,26 +1833,38 @@ CREATE TABLE orders (
           "SELECT " +
           state.selectFields.join(", ") +
           "\nFROM " +
-          quoteIdent(o.name) +
+          quoteTableRef(o) +
           "\nINNER JOIN " +
-          quoteIdent(u.name) +
+          quoteTableRef(u) +
           " ON " +
-          fullCol(o.name, uid.name) +
+          fullColT(o, uid.name) +
           " = " +
-          fullCol(u.name, joinCol.name);
+          fullColT(u, joinCol.name);
         const of = o.fields.find((f) => /created|date|time/i.test(f.name));
         let rest = sql;
-        if (of) rest += "\nORDER BY " + fullCol(o.name, of.name) + " DESC";
+        if (of) rest += "\nORDER BY " + fullColT(o, of.name) + " DESC";
         rest += "\nLIMIT 100";
         els.sqlOut.textContent = rest;
+        if (els.sqlMode) {
+          els.sqlMode.value = "SELECT";
+        }
         syncOrderFieldOptions();
+        syncSqlModePanels();
         renderSelectChips();
         renderWhereRows();
+        renderInsertRows();
+        renderSetRows();
+        try {
+          saveQueryToStorage();
+        } catch (_) {}
         return;
       }
     }
+    syncSqlModePanels();
     renderSelectChips();
     renderWhereRows();
+    renderInsertRows();
+    renderSetRows();
     updateSql();
   }
 
@@ -1155,51 +1879,64 @@ CREATE TABLE orders (
     });
   }
 
-  function nlToHeuristic(text) {
-    const raw = (text || "").trim();
-    if (!raw) return;
-    const tname = els.fromTable.value;
-    const t = getTable(tname);
-    if (!t) {
-      if (state.tables[0]) {
-        els.fromTable.value = state.tables[0].name;
-        return nlToHeuristic(text);
-      }
-      return;
+  function detectNlMode(s) {
+    const t = s.trim();
+    if (/^(删除|删掉|remove|delete)\b/i.test(t)) {
+      return "DELETE";
     }
+    if (/(^插入|INSERT\s+INTO|新增|添加一条|向.*表.*插入|写入)/i.test(s)) {
+      return "INSERT";
+    }
+    if (/(^更新|^修改|UPDATE|把\w*[\s\w]*(改为|改成)|\bSET\s+\w+\s*=)/i.test(s)) {
+      return "UPDATE";
+    }
+    if (/(UNION|WITH\s|CTE|子查询|窗口|ROW_NUMBER|MERGE|多语句)/i.test(s)) {
+      return "ADVANCED";
+    }
+    return null;
+  }
 
+  function nlGuessTableName(raw) {
+    const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const withDb = state.tables
+      .filter((t) => t.db && String(t.db).trim())
+      .sort((a, b) => tableLabel(b).length - tableLabel(a).length);
+    for (const tb of withDb) {
+      const lab = tableLabel(tb);
+      try {
+        if (new RegExp("\\b" + esc(lab) + "\\b", "i").test(raw)) {
+          return tableKey(tb);
+        }
+      } catch (_) {}
+    }
+    const bareKeys = /** @type {string[]} */ ([]);
+    for (const tb of state.tables) {
+      try {
+        if (new RegExp("\\b" + esc(tb.name) + "\\b", "i").test(raw)) {
+          bareKeys.push(tableKey(tb));
+        }
+      } catch (_) {}
+    }
+    const uniq = [...new Set(bareKeys)];
+    if (uniq.length === 1) {
+      return uniq[0];
+    }
+    return null;
+  }
+
+  function nlBuildCondsArray(raw, tname, t) {
     const s = raw.toLowerCase();
     const fields = t.fields;
-
     const pickField = (hint) => {
-      const h = hint.toLowerCase();
+      const h = (hint || "").toLowerCase();
       for (const f of fields) {
-        if (f.name.toLowerCase() === h || f.name.toLowerCase().includes(h) || h.includes(f.name.toLowerCase())) return f;
+        if (f.name.toLowerCase() === h || f.name.toLowerCase().includes(h) || h.includes(f.name.toLowerCase())) {
+          return f;
+        }
       }
       return fields[0];
     };
-
-    state.useStar = /所有|全部|all\b|\*/.test(s) && !/多少|几|数|条数|count|分组/.test(s);
-    if (!state.useStar) {
-      if (/多少|几行|行数|count|总数/.test(s)) {
-        state.selectFields = ["COUNT(*) AS total"];
-        state.groupBy = null;
-      } else {
-        const m = raw.match(/查询\s*([a-zA-Z0-9_]+)|查\s*([a-zA-Z0-9_]+)|查\s*(\S+?)(?:\s+为|\s*=\s*)/u);
-        let f = fields[0];
-        if (m) {
-          const nameHint = m[1] || m[2] || m[3];
-          if (nameHint) f = pickField(nameHint.replace(/的|的字段/, "")) || f;
-        }
-        state.selectFields = [fullCol(tname, f.name)];
-        state.groupBy = null;
-      }
-    } else {
-      state.selectFields = [];
-      state.groupBy = null;
-    }
-
-    const conds = [];
+    const conds = /** @type {{ table: string, field: string, op: string, value: string }[]} */ ([]);
     const numMatch = raw.match(/(大于|>)\s*([\d.]+)/);
     if (numMatch) {
       const val = numMatch[2];
@@ -1217,7 +1954,9 @@ CREATE TABLE orders (
       const fn = (eq[1] || "").replace(/^(where|and)$/i, "");
       if (fn) {
         const fd = pickField(fn);
-        if (fd) conds.push({ table: tname, field: fd.name, op: "=", value: (eq[3] || eq[2] || "").trim() });
+        if (fd) {
+          conds.push({ table: tname, field: fd.name, op: "=", value: (eq[3] || eq[2] || "").trim() });
+        }
       }
     }
     if (/^查询.+为/.test(raw)) {
@@ -1229,15 +1968,58 @@ CREATE TABLE orders (
     }
     if (/空|null/i.test(s) && /email|name|手机|电话/.test(s)) {
       const nf = fields.find((f) => /email|phone|tel|name/i.test(f.name));
-      if (nf) conds.push({ table: tname, field: nf.name, op: "IS NULL", value: "" });
+      if (nf) {
+        conds.push({ table: tname, field: nf.name, op: "IS NULL", value: "" });
+      }
     }
     if (/非空|不为空|is not null/.test(s)) {
       const nf = fields[0];
       conds.push({ table: tname, field: nf.name, op: "IS NOT NULL", value: "" });
     }
+    return conds;
+  }
 
-    if (conds.length) state.whereRows = conds;
-    else state.whereRows = [{ table: tname, field: fields[0] ? fields[0].name : "", op: "=", value: "" }];
+  function nlDmlSelect(raw, tname, t) {
+    const s = raw.toLowerCase();
+    const fields = t.fields;
+    const pickField = (hint) => {
+      const h = (hint || "").toLowerCase();
+      for (const f of fields) {
+        if (f.name.toLowerCase() === h || f.name.toLowerCase().includes(h) || h.includes(f.name.toLowerCase())) {
+          return f;
+        }
+      }
+      return fields[0];
+    };
+
+    state.useStar = /所有|全部|all\b|\*/.test(s) && !/多少|几|数|条数|count|分组/.test(s);
+    if (!state.useStar) {
+      if (/多少|几行|行数|count|总数/.test(s)) {
+        state.selectFields = ["COUNT(*) AS total"];
+        state.groupBy = null;
+      } else {
+        const m = raw.match(/查询\s*([a-zA-Z0-9_]+)|查\s*([a-zA-Z0-9_]+)|查\s*(\S+?)(?:\s+为|\s*=\s*)/u);
+        let f = fields[0];
+        if (m) {
+          const nameHint = m[1] || m[2] || m[3];
+          if (nameHint) {
+            f = pickField(nameHint.replace(/的|的字段/, "")) || f;
+          }
+        }
+        state.selectFields = [fullCol(tname, f.name)];
+        state.groupBy = null;
+      }
+    } else {
+      state.selectFields = [];
+      state.groupBy = null;
+    }
+
+    const conds = nlBuildCondsArray(raw, tname, t);
+    if (conds.length) {
+      state.whereRows = conds;
+    } else {
+      state.whereRows = [{ table: tname, field: fields[0] ? fields[0].name : "", op: "=", value: "" }];
+    }
 
     if (/降序|从大到|desc|最新|时间倒/.test(s)) {
       const timeF = fields.find((f) => /created|time|date|at$/i.test(f.name));
@@ -1256,8 +2038,11 @@ CREATE TABLE orders (
     }
 
     const limitM = s.match(/(?:前|只|取|最)\s*(\d+)\s*条|limit\s*(\d+)/i);
-    if (limitM) els.limitVal.value = limitM[1] || limitM[2] || "";
-    else if (/前10|十条/.test(s)) els.limitVal.value = "10";
+    if (limitM) {
+      els.limitVal.value = limitM[1] || limitM[2] || "";
+    } else if (/前10|十条/.test(s)) {
+      els.limitVal.value = "10";
+    }
 
     if (/分组|各.*(数量|条数|人数)|group by|按\s*(\w+)\s*统计/.test(s)) {
       const cat = fields.find((f) => /dept|type|status|name|class|组/i.test(f.name)) || fields[0];
@@ -1277,24 +2062,176 @@ CREATE TABLE orders (
     updateSql();
   }
 
+  function nlDmlDelete(raw, tname, t) {
+    const conds = nlBuildCondsArray(raw, tname, t);
+    state.whereRows = conds.length
+      ? conds
+      : [{ table: tname, field: t.fields[0] ? t.fields[0].name : "", op: "=", value: "" }];
+    els.orderField.value = "";
+    if (els.limitVal) {
+      els.limitVal.value = "";
+    }
+    renderWhereRows();
+    updateSql();
+  }
+
+  function nlDmlInsert(raw, tname, t) {
+    const rows = /** @type {{ field: string, value: string }[]} */ ([]);
+    const re = /([A-Za-z_][A-Za-z0-9_]*)\s*[=:：＝]\s*([^,;，、]+)/g;
+    let m;
+    while ((m = re.exec(raw)) !== null) {
+      if (t.fields.some((f) => f.name === m[1])) {
+        rows.push({ field: m[1], value: m[2].trim() });
+      }
+    }
+    if (rows.length) {
+      state.insertRows = rows;
+    } else {
+      state.insertRows = t.fields.slice(0, Math.min(2, t.fields.length)).map((f) => ({ field: f.name, value: "" }));
+    }
+    renderInsertRows();
+    updateSql();
+  }
+
+  function nlDmlUpdate(raw, tname, t) {
+    const setRows = /** @type {{ field: string, value: string }[]} */ ([]);
+    const re1 = /(将|把)?\s*([A-Za-z_][A-Za-z0-9_]*)\s*(改为|改成|为|设成)[:：\s]*([^,;，]+)/g;
+    let m;
+    while ((m = re1.exec(raw)) !== null) {
+      if (t.fields.some((f) => f.name === m[2])) {
+        setRows.push({ field: m[2], value: m[4] ? m[4].trim() : "" });
+      }
+    }
+    if (!setRows.length) {
+      const re2 = /SET\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^\s]+)/i.exec(raw);
+      if (re2) {
+        setRows.push({ field: re2[1], value: re2[2] });
+      }
+    }
+    if (setRows.length) {
+      state.setRows = setRows;
+    } else {
+      state.setRows = [{ field: t.fields[0] ? t.fields[0].name : "", value: "" }];
+    }
+    const conds = nlBuildCondsArray(raw, tname, t);
+    state.whereRows = conds.length
+      ? conds
+      : [{ table: tname, field: t.fields[0] ? t.fields[0].name : "", op: "=", value: "" }];
+    renderSetRows();
+    renderWhereRows();
+    updateSql();
+  }
+
+  function nlDmlAdvanced(raw, tname, t) {
+    if (/UNION/i.test(raw)) {
+      if (els.customSql) {
+        const t2 = state.tables[1];
+        els.customSql.value =
+          "(SELECT *\n  FROM " +
+          quoteTableRef(t) +
+          "\n  WHERE 1 = 1\n)\nUNION ALL\n(SELECT *\n  FROM " +
+          (t2 ? quoteTableRef(t2) : "other_table") +
+          "\n  WHERE 1 = 1\n);";
+      }
+    } else if (/WITH|CTE/i.test(raw)) {
+      if (els.customSql) {
+        els.customSql.value = "WITH t AS (\n  SELECT * FROM " + quoteTableRef(t) + "\n)\nSELECT * FROM t;";
+      }
+    } else if (els.customSql && !els.customSql.value.trim()) {
+      els.customSql.value = "-- 在此编写: CTE、UNION、子查询、多语句(视方言)、MERGE/UPSERT 等\n-- 主表: " + tname;
+    }
+    updateSql();
+  }
+
+  function nlToHeuristic(text) {
+    const raw = (text || "").trim();
+    if (!raw) {
+      return;
+    }
+    if (!state.tables.length) {
+      alert("请先定义表结构");
+      return;
+    }
+    const byName = nlGuessTableName(raw);
+    if (byName) {
+      els.fromTable.value = byName;
+    }
+    const g = detectNlMode(raw);
+    if (g) {
+      els.sqlMode.value = g;
+    }
+    syncSqlModePanels();
+    let tname = els.fromTable.value;
+    let t = getTable(tname);
+    if (!t) {
+      els.fromTable.value = tableKey(state.tables[0]);
+      tname = els.fromTable.value;
+      t = getTable(tname);
+    }
+    if (!t) {
+      return;
+    }
+    const mode = getSqlMode();
+    if (mode === "DELETE") {
+      return nlDmlDelete(raw, tname, t);
+    }
+    if (mode === "INSERT") {
+      return nlDmlInsert(raw, tname, t);
+    }
+    if (mode === "UPDATE") {
+      return nlDmlUpdate(raw, tname, t);
+    }
+    if (mode === "ADVANCED") {
+      return nlDmlAdvanced(raw, tname, t);
+    }
+    return nlDmlSelect(raw, tname, t);
+  }
+
 
   elListeners();
   renderTemplateButtons();
   setupDrag();
+  _blockQuerySave = true;
   loadSchemaFromStorage();
   renderSchema();
+  loadQueryFromStorage();
+  _blockQuerySave = false;
+  refreshBuilderUI();
 
   function elListeners() {
     els.parseDdl.addEventListener("click", () => {
       try {
-        const tables = parseDDL(els.ddlInput.value);
-        state.tables = tables;
+        const incoming = parseDDL(els.ddlInput.value);
+        let added = 0;
+        let updated = 0;
+        for (const nt of incoming) {
+          const idx = state.tables.findIndex((t) => tableKey(t) === tableKey(nt));
+          if (idx >= 0) {
+            state.tables[idx] = nt;
+            updated++;
+          } else {
+            state.tables.push(nt);
+            added++;
+          }
+        }
         state.groupBy = null;
-        if (!state.whereRows.length) state.whereRows = [{ table: tables[0].name, field: tables[0].fields[0] ? tables[0].fields[0].name : "", op: "=", value: "" }];
+        if (!state.whereRows.length && state.tables[0]) {
+          const t0 = state.tables[0];
+          state.whereRows = [
+            { table: tableKey(t0), field: t0.fields[0] ? t0.fields[0].name : "", op: "=", value: "" },
+          ];
+        }
         renderSchema();
         saveSchemaToStorage();
-        els.copyStatus.textContent = "已解析 " + tables.length + " 张表";
-        setTimeout(() => (els.copyStatus.textContent = ""), 2000);
+        const parts = [];
+        if (added) {
+          parts.push("新增 " + added + " 张");
+        }
+        if (updated) {
+          parts.push("更新 " + updated + " 张");
+        }
+        els.copyStatus.textContent = (parts.length ? parts.join("，") : "已合并 " + incoming.length + " 张") + "，当前共 " + state.tables.length + " 张表";
+        setTimeout(() => (els.copyStatus.textContent = ""), 3000);
       } catch (e) {
         alert(e.message || String(e));
       }
@@ -1309,15 +2246,31 @@ CREATE TABLE orders (
       state.useStar = false;
       state.groupBy = null;
       state.whereRows = [];
+      state.insertRows = [{ field: "", value: "" }];
+      state.setRows = [{ field: "", value: "" }];
+      if (els.sqlMode) {
+        els.sqlMode.value = "SELECT";
+      }
+      if (els.customSql) {
+        els.customSql.value = "";
+      }
+      if (els.joinEnabled) {
+        els.joinEnabled.checked = false;
+      }
+      if (els.joinPanel) {
+        els.joinPanel.classList.add("is-hidden");
+      }
       renderSchema();
       clearSchemaStorage();
+      clearQueryStorage();
     });
     els.addManualTable.addEventListener("click", () => {
-      const name = (els.manualTable.value || "").trim();
-      if (!name) {
+      const tableName = (els.manualTable.value || "").trim();
+      if (!tableName) {
         alert("请填写表名");
         return;
       }
+      const dbStr = els.manualDb && els.manualDb.value != null ? String(els.manualDb.value).trim() : "";
       const lines = (els.manualFields.value || "").split("\n");
       const fields = [];
       for (const line of lines) {
@@ -1367,20 +2320,61 @@ CREATE TABLE orders (
         alert("请至少填写一个字段");
         return;
       }
-      const i = state.tables.findIndex((t) => t.name === name);
-      const tb = { name, fields };
+      const stub = { name: tableName, db: dbStr, fields };
+      const i = state.tables.findIndex((t) => tableKey(t) === tableKey(stub));
+      const tb = { name: tableName, db: dbStr, fields };
       if (i >= 0) state.tables[i] = tb;
       else state.tables.push(tb);
       els.manualTable.value = "";
+      if (els.manualDb) {
+        els.manualDb.value = "";
+      }
       els.manualFields.value = "";
       renderSchema();
       saveSchemaToStorage();
     });
     els.fromTable.addEventListener("change", () => {
-      syncOrderFieldOptions();
       state.whereRows = state.whereRows.map((r) => ({ ...r, table: els.fromTable.value }));
-      renderWhereRows();
-      updateSql();
+      refreshBuilderUI();
+    });
+    if (els.sqlMode) {
+      els.sqlMode.addEventListener("change", () => {
+        syncSqlModePanels();
+        updateSql();
+      });
+    }
+    if (els.joinEnabled) {
+      els.joinEnabled.addEventListener("change", () => {
+        if (els.joinPanel) {
+          els.joinPanel.classList.toggle("is-hidden", !els.joinEnabled.checked);
+        }
+        updateSql();
+      });
+    }
+    if (els.addInsertRow) {
+      els.addInsertRow.addEventListener("click", () => {
+        state.insertRows.push({ field: "", value: "" });
+        renderInsertRows();
+        updateSql();
+      });
+    }
+    if (els.addSetRow) {
+      els.addSetRow.addEventListener("click", () => {
+        state.setRows.push({ field: "", value: "" });
+        renderSetRows();
+        updateSql();
+      });
+    }
+    if (els.customSql) {
+      els.customSql.addEventListener("input", updateSql);
+    }
+    [els.joinTable, els.joinType, els.joinLeftField, els.joinRightField].forEach((el) => {
+      if (el) {
+        el.addEventListener("change", () => {
+          syncJoinOptions();
+          updateSql();
+        });
+      }
     });
     els.clearSelect.addEventListener("click", () => {
       state.selectFields = [];
