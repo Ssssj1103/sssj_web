@@ -1,0 +1,1273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SQL 快速构建器</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --surface: #ffffff;
+      --primary: #1e6fe6;
+      --primary-hover: #155bd4;
+      --primary-light: #e8f0fe;
+      --border: #d7e0ef;
+      --text: #1a2332;
+      --text-muted: #5c6b82;
+      --success: #0d9488;
+      --radius: 10px;
+      --shadow: 0 1px 3px rgba(30, 111, 230, 0.08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Noto Sans SC", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .app-header {
+      background: linear-gradient(135deg, #1a5fd4 0%, #2563eb 50%, #3b82f6 100%);
+      color: #fff;
+      padding: 0.9rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      box-shadow: 0 2px 12px rgba(30, 72, 180, 0.25);
+    }
+    .app-header h1 { margin: 0; font-size: 1.15rem; font-weight: 600; }
+    .app-header p { margin: 0; font-size: 0.8rem; opacity: 0.92; }
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(240px, 1fr) minmax(320px, 1.1fr) minmax(280px, 1fr);
+      gap: 0;
+      min-height: calc(100vh - 56px);
+    }
+    @media (max-width: 1024px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+    .column {
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .column:last-child { border-right: none; }
+    .col-title {
+      padding: 0.75rem 1rem;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      font-weight: 600;
+      font-size: 0.9rem;
+      color: var(--text);
+    }
+    .col-body { flex: 1; overflow: auto; padding: 1rem; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.9rem 1rem;
+      margin-bottom: 0.85rem;
+      box-shadow: var(--shadow);
+    }
+    .card h3 {
+      margin: 0 0 0.6rem 0;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    label.hint { font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 0.25rem; }
+    textarea, input[type="text"], input[type="number"], select {
+      width: 100%;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.78rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.5rem 0.6rem;
+    }
+    textarea { min-height: 100px; resize: vertical; }
+    textarea:focus, input:focus, select:focus {
+      outline: 2px solid var(--primary-light);
+      border-color: var(--primary);
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.35rem;
+      padding: 0.45rem 0.9rem;
+      font-size: 0.8rem;
+      font-weight: 500;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-ghost { background: var(--primary-light); color: var(--primary); }
+    .btn-ghost:hover { background: #d9e8fc; }
+    .btn-sm { padding: 0.3rem 0.6rem; font-size: 0.75rem; }
+    .row-btns { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem; }
+    .table-list { margin-top: 0.5rem; }
+    .table-block {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 0.5rem;
+      overflow: hidden;
+    }
+    .table-head {
+      background: var(--primary-light);
+      padding: 0.45rem 0.65rem;
+      font-weight: 600;
+      font-size: 0.82rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .field-item {
+      padding: 0.35rem 0.65rem;
+      font-size: 0.78rem;
+      font-family: "JetBrains Mono", monospace;
+      border-top: 1px solid #eef2f8;
+      cursor: grab;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .field-item:hover { background: #fafcff; }
+    .field-item:active { cursor: grabbing; }
+    .type-badge { font-size: 0.65rem; color: var(--text-muted); }
+    .drop-zone {
+      min-height: 48px;
+      border: 2px dashed var(--border);
+      border-radius: 8px;
+      padding: 0.5rem;
+      background: #fafbfe;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .drop-zone.dragover { border-color: var(--primary); background: var(--primary-light); }
+    .drop-hint { font-size: 0.72rem; color: var(--text-muted); text-align: center; padding: 0.3rem; }
+    .chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.4rem; }
+    .chip {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.2rem 0.5rem;
+      font-size: 0.72rem;
+      font-family: "JetBrains Mono", monospace;
+    }
+    .where-row {
+      display: grid;
+      grid-template-columns: minmax(90px, 0.8fr) minmax(80px, 0.8fr) 100px 1fr auto;
+      gap: 0.4rem;
+      align-items: center;
+      margin-bottom: 0.45rem;
+    }
+    @media (max-width: 600px) {
+      .where-row { grid-template-columns: 1fr; }
+    }
+    .where-row select { min-width: 0; }
+    .sql-preview {
+      background: #0f172a;
+      color: #e2e8f0;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.8rem;
+      line-height: 1.55;
+      padding: 1rem;
+      border-radius: 8px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      min-height: 200px;
+    }
+    .glossary { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.75rem; }
+    .glossary dt { font-weight: 600; color: var(--text); margin-top: 0.35rem; }
+    .template-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 0.4rem; }
+    .template-btn {
+      text-align: left;
+      padding: 0.45rem 0.55rem;
+      font-size: 0.72rem;
+      border: 1px solid var(--border);
+      background: #fff;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .template-btn:hover { border-color: var(--primary); color: var(--primary); }
+    .empty-msg { color: var(--text-muted); font-size: 0.8rem; }
+    kbd { font-size: 0.65rem; padding: 0.1rem 0.3rem; border: 1px solid var(--border); border-radius: 4px; background: #f8fafc; }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <h1>SQL 快速构建器</h1>
+      <p>表结构 + 条件可视化 + 自然语言 / 模板，一键生成可执行 SQL</p>
+    </div>
+  </header>
+
+  <div class="layout">
+    <!-- 左：表结构 -->
+    <section class="column" aria-label="表结构">
+      <div class="col-title">表结构定义</div>
+      <div class="col-body">
+        <div class="card">
+          <h3>从 DDL 导入 <span class="type-badge">支持 CREATE TABLE</span></h3>
+          <label class="hint">粘贴 MySQL / PostgreSQL 等风格的 DDL，点击解析表名与列</label>
+          <textarea id="ddlInput" placeholder="例：&#10;CREATE TABLE users (&#10;  id INT PRIMARY KEY,&#10;  name VARCHAR(100),&#10;  created_at TIMESTAMP&#10;);"></textarea>
+          <div class="row-btns">
+            <button type="button" class="btn btn-primary" id="parseDdl">解析 DDL</button>
+            <button type="button" class="btn btn-ghost" id="loadSampleDdl">载入示例</button>
+            <button type="button" class="btn btn-ghost" id="clearSchema">清空表结构</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3>手动添加表与字段 <span class="type-badge">可选</span></h3>
+          <label class="hint">表名</label>
+          <input type="text" id="manualTable" placeholder="orders" />
+          <label class="hint" style="margin-top:0.5rem">字段列表（每行：字段名 类型，用空格或 Tab 分隔）</label>
+          <textarea id="manualFields" placeholder="id int&#10;user_id int&#10;amount decimal(10,2)"></textarea>
+          <div class="row-btns">
+            <button type="button" class="btn btn-primary" id="addManualTable">添加表</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3>已定义表 <span class="type-badge">拖拽到中间「SELECT」或条件</span></h3>
+          <p class="empty-msg" id="schemaEmpty">暂无表结构，请导入 DDL 或手动添加。</p>
+          <div class="table-list" id="tableList"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 中：查询条件 -->
+    <section class="column" aria-label="查询构建">
+      <div class="col-title">查询条件与字段</div>
+      <div class="col-body">
+        <div class="card">
+          <h3>主表 <span class="type-badge">FROM</span></h3>
+          <select id="fromTable">
+            <option value="">先定义表结构</option>
+          </select>
+        </div>
+        <div class="card">
+          <h3>SELECT 字段 <span class="type-badge">拖拽表字段到下方区域</span></h3>
+          <div class="drop-zone" id="selectDrop" data-target="select">
+            <div class="drop-hint" id="selectDropHint">将左侧字段拖入此处；留空则使用 <code>*</code></div>
+            <div class="chips" id="selectChips"></div>
+          </div>
+          <div class="row-btns">
+            <button type="button" class="btn btn-ghost btn-sm" id="clearSelect">清空字段</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="addStar">使用 * 全部列</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3>WHERE 条件 <span class="type-badge">AND 连接</span></h3>
+          <div id="whereRows"></div>
+          <div class="row-btns">
+            <button type="button" class="btn btn-primary btn-sm" id="addWhere">+ 条件行</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3>排序与分页</h3>
+          <div class="where-row" style="grid-template-columns: 1fr 1fr 1fr 1fr;">
+            <div>
+              <label class="hint">ORDER BY 字段</label>
+              <select id="orderField"><option value="">不排序</option></select>
+            </div>
+            <div>
+              <label class="hint">方向</label>
+              <select id="orderDir">
+                <option value="ASC">ASC 升序</option>
+                <option value="DESC">DESC 降序</option>
+              </select>
+            </div>
+            <div>
+              <label class="hint">LIMIT</label>
+              <input type="number" id="limitVal" min="0" placeholder="空表示不限" />
+            </div>
+            <div>
+              <label class="hint">OFFSET</label>
+              <input type="number" id="offsetVal" min="0" placeholder="0" />
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>查询模板库</h3>
+          <p class="empty-msg" style="margin:0 0 0.5rem 0">点击套用常见模式（会覆盖部分中间区设置，可再微调）。</p>
+          <div class="template-grid" id="templateGrid"></div>
+        </div>
+        <div class="card">
+          <h3>自然语言转 SQL <span class="type-badge">基于当前表与字段解析</span></h3>
+          <label class="hint">用中文或英文描述需求，如：「查询 name 为张三的用户」「按部门分组统计人数」</label>
+          <textarea id="nlInput" style="min-height:72px" placeholder="例：查询所有金额大于 100 的订单，按创建时间降序，只取 10 条"></textarea>
+          <div class="row-btns">
+            <button type="button" class="btn btn-primary" id="nlToSql">生成到构建区</button>
+            <span class="empty-msg" style="align-self:center">解析规则为启发式，复杂查询请用可视化微调。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 右：预览 -->
+    <section class="column" aria-label="SQL 预览">
+      <div class="col-title">SQL 预览与复制</div>
+      <div class="col-body">
+        <div class="card">
+          <h3>当前 SQL <span class="type-badge">实时</span></h3>
+          <div class="row-btns" style="margin-bottom:0.5rem">
+            <button type="button" class="btn btn-primary" id="copySql">复制 SQL</button>
+            <span id="copyStatus" class="empty-msg"></span>
+          </div>
+          <div class="sql-preview" id="sqlOut"></div>
+        </div>
+        <div class="card">
+          <h3>SQL 术语速查</h3>
+          <dl class="glossary">
+            <dt>SELECT</dt>
+            <dd>指定要查询的列；<code>*</code> 表示所有列。</dd>
+            <dt>FROM</dt>
+            <dd>指定数据来源表；联表时可用 JOIN 扩展。</dd>
+            <dt>WHERE</dt>
+            <dd>行级过滤，只保留满足条件的行。</dd>
+            <dt>ORDER BY / LIMIT</dt>
+            <dd>排序与截断行数，常用于报表与分页。</dd>
+          </dl>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+(function () {
+  "use strict";
+
+  /** @typedef {{ name: string, type: string }} Field */
+  /** @typedef {{ name: string, fields: Field[] }} Table */
+
+  const state = {
+    tables: /** @type {Table[]} */ ([]),
+    selectFields: /** @type {string[]} */ ([]),
+    useStar: false,
+    /** 非空时在生成 SQL 中追加 GROUP BY */
+    groupBy: /** @type {string | null} */ (null),
+    whereRows: /** @type {{ table: string, field: string, op: string, value: string }[]} */ ([]),
+  };
+
+  const els = {
+    ddlInput: document.getElementById("ddlInput"),
+    parseDdl: document.getElementById("parseDdl"),
+    loadSampleDdl: document.getElementById("loadSampleDdl"),
+    clearSchema: document.getElementById("clearSchema"),
+    manualTable: document.getElementById("manualTable"),
+    manualFields: document.getElementById("manualFields"),
+    addManualTable: document.getElementById("addManualTable"),
+    schemaEmpty: document.getElementById("schemaEmpty"),
+    tableList: document.getElementById("tableList"),
+    fromTable: document.getElementById("fromTable"),
+    selectDrop: document.getElementById("selectDrop"),
+    selectChips: document.getElementById("selectChips"),
+    selectDropHint: document.getElementById("selectDropHint"),
+    clearSelect: document.getElementById("clearSelect"),
+    addStar: document.getElementById("addStar"),
+    whereRows: document.getElementById("whereRows"),
+    addWhere: document.getElementById("addWhere"),
+    orderField: document.getElementById("orderField"),
+    orderDir: document.getElementById("orderDir"),
+    limitVal: document.getElementById("limitVal"),
+    offsetVal: document.getElementById("offsetVal"),
+    templateGrid: document.getElementById("templateGrid"),
+    nlInput: document.getElementById("nlInput"),
+    nlToSql: document.getElementById("nlToSql"),
+    sqlOut: document.getElementById("sqlOut"),
+    copySql: document.getElementById("copySql"),
+    copyStatus: document.getElementById("copyStatus"),
+  };
+
+  const SAMPLE_DDL = `CREATE TABLE users (
+  id INT PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  email VARCHAR(200),
+  dept VARCHAR(50),
+  created_at TIMESTAMP
+);
+
+CREATE TABLE orders (
+  id INT PRIMARY KEY,
+  user_id INT NOT NULL,
+  amount DECIMAL(10,2),
+  status VARCHAR(20),
+  created_at TIMESTAMP
+);`;
+
+  const OPS = [
+    { v: "=", t: "等于" },
+    { v: "!=", t: "不等于" },
+    { v: ">", t: "大于" },
+    { v: ">=", t: "大于等于" },
+    { v: "<", t: "小于" },
+    { v: "<=", t: "小于等于" },
+    { v: "LIKE", t: "模糊匹配" },
+    { v: "IN", t: "在列表中 (逗号分隔)" },
+    { v: "IS NULL", t: "为空" },
+    { v: "IS NOT NULL", t: "非空" },
+  ];
+
+  const TEMPLATES = [
+    { id: "simple_select", name: "简单全表", desc: "SELECT *" },
+    { id: "count_all", name: "总行数", desc: "COUNT(*)" },
+    { id: "group_count", name: "分组计数", desc: "GROUP BY + COUNT" },
+    { id: "join_orders_users", name: "两表联查", desc: "INNER JOIN 示例" },
+  ];
+
+  function quoteIdent(s) {
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  }
+
+  function getTable(tname) {
+    return state.tables.find((t) => t.name === tname);
+  }
+
+  function fullCol(table, field) {
+    return quoteIdent(table) + "." + quoteIdent(field);
+  }
+
+  function renderSchema() {
+    if (!state.tables.length) {
+      els.schemaEmpty.style.display = "block";
+      els.tableList.innerHTML = "";
+    } else {
+      els.schemaEmpty.style.display = "none";
+      els.tableList.innerHTML = state.tables
+        .map(
+          (t) => `
+        <div class="table-block" data-table="${escapeHtml(t.name)}">
+          <div class="table-head"><span>${escapeHtml(t.name)}</span><span class="type-badge">${t.fields.length} 列</span></div>
+          ${t.fields
+            .map(
+              (f) => `
+            <div class="field-item" draggable="true" data-table="${escapeHtml(t.name)}" data-field="${escapeHtml(f.name)}" data-type="${escapeHtml(f.type)}"
+              title="拖到 SELECT 或条件行">
+              <span>${escapeHtml(f.name)}</span>
+              <span class="type-badge">${escapeHtml(f.type)}</span>
+            </div>`
+            )
+            .join("")}
+        </div>`
+        )
+        .join("");
+    }
+
+    const prevFrom = els.fromTable.value;
+    els.fromTable.innerHTML =
+      '<option value="">选择主表</option>' +
+      state.tables.map((t) => `<option value="${escapeHtml(t.name)}">${escapeHtml(t.name)}</option>`).join("");
+
+    if (state.tables.some((t) => t.name === prevFrom)) els.fromTable.value = prevFrom;
+    else if (state.tables.length) els.fromTable.value = state.tables[0].name;
+
+    syncOrderFieldOptions();
+    renderSelectChips();
+    renderWhereRows();
+    updateSql();
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  /**
+   * 仅解析 DDL 字符串/反引号/注释中的扫描步进，不执行 SQL。
+   * 在 text[i] 为起始字符时，将 i 前移到该 token 之后。
+   */
+  function advancePastDdlStringState(text, i) {
+    const c = text[i];
+    if (c === "'") {
+      i++;
+      while (i < text.length) {
+        if (text[i] === "\\") {
+          i += 2;
+          continue;
+        }
+        if (text[i] === "'" && text[i + 1] === "'") {
+          i += 2;
+          continue;
+        }
+        if (text[i] === "'") {
+          return i + 1;
+        }
+        i++;
+      }
+      return i;
+    }
+    if (c === '"') {
+      i++;
+      while (i < text.length) {
+        if (text[i] === "\\") {
+          i += 2;
+          continue;
+        }
+        if (text[i] === '"') {
+          return i + 1;
+        }
+        i++;
+      }
+      return i;
+    }
+    if (c === "`") {
+      i++;
+      while (i < text.length) {
+        if (text[i] === "`" && text[i + 1] === "`") {
+          i += 2;
+          continue;
+        }
+        if (text[i] === "`") {
+          return i + 1;
+        }
+        i++;
+      }
+      return i;
+    }
+    if (c === "/" && text[i + 1] === "*") {
+      i += 2;
+      while (i < text.length) {
+        if (text[i] === "*" && text[i + 1] === "/") {
+          return i + 2;
+        }
+        i++;
+      }
+      return i;
+    }
+    if (c === "-" && text[i + 1] === "-") {
+      i += 2;
+      while (i < text.length && text[i] !== "\n" && text[i] !== "\r") {
+        i++;
+      }
+      return i;
+    }
+    return -1;
+  }
+
+  /** 自 text[openIdx]==='(' 起，返回与之外层括号成对闭合后的下一个下标。 */
+  function findMatchingRightParen(text, openIdx) {
+    let i = openIdx + 1;
+    let depth = 1;
+    const n = text.length;
+    while (i < n && depth > 0) {
+      const st = advancePastDdlStringState(text, i);
+      if (st !== -1) {
+        i = st;
+        continue;
+      }
+      const c = text[i];
+      if (c === "/" && i + 1 < n) {
+        if (text[i + 1] === "*") {
+          i = advancePastDdlStringState(text, i);
+          continue;
+        }
+      }
+      if (c === "-" && i + 1 < n && text[i + 1] === "-") {
+        i = advancePastDdlStringState(text, i);
+        continue;
+      }
+      if (c === "(") {
+        depth++;
+        i++;
+        continue;
+      }
+      if (c === ")") {
+        depth--;
+        i++;
+        continue;
+      }
+      i++;
+    }
+    if (depth !== 0) {
+      return -1;
+    }
+    return i;
+  }
+
+  function splitDdlTopLevelCommas(body) {
+    const out = [];
+    let cur = "";
+    let depth = 0;
+    let i = 0;
+    const n = body.length;
+    while (i < n) {
+      const st = advancePastDdlStringState(body, i);
+      if (st !== -1) {
+        for (let j = i; j < st; j++) {
+          cur += body[j];
+        }
+        i = st;
+        continue;
+      }
+      const c = body[i];
+      if (c === "(") {
+        depth++;
+        cur += c;
+        i++;
+        continue;
+      }
+      if (c === ")") {
+        depth = Math.max(0, depth - 1);
+        cur += c;
+        i++;
+        continue;
+      }
+      if (c === "," && depth === 0) {
+        if (cur.trim()) out.push(cur.trim());
+        cur = "";
+        i++;
+        continue;
+      }
+      cur += c;
+      i++;
+    }
+    if (cur.trim()) out.push(cur.trim());
+    return out;
+  }
+
+  function parseDdlTableNameAndOpenParen(text, fromIdx) {
+    const m = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?/i.exec(text.slice(fromIdx));
+    if (!m) return null;
+    let p = fromIdx + m.index + m[0].length;
+    while (p < text.length && /\s/.test(text[p])) {
+      p++;
+    }
+    let tname = "";
+    if (text[p] === "`") {
+      p++;
+      const start = p;
+      while (p < text.length) {
+        if (text[p] === "`" && text[p + 1] === "`") {
+          p += 2;
+          continue;
+        }
+        if (text[p] === "`") {
+          tname = text.slice(start, p);
+          p++;
+          break;
+        }
+        p++;
+      }
+    } else if (text[p] === '"') {
+      p++;
+      const start = p;
+      while (p < text.length && text[p] !== '"') {
+        p++;
+      }
+      tname = text.slice(start, p);
+      if (p < text.length) p++;
+    } else {
+      const mm = /^\s*([A-Za-z0-9_]+)/.exec(text.slice(p));
+      if (mm) {
+        tname = mm[1];
+        p += mm[0].length;
+      } else {
+        return null;
+      }
+    }
+    if (!tname) return null;
+    while (p < text.length && /\s/.test(text[p])) {
+      p++;
+    }
+    if (text[p] !== "(") {
+      return null;
+    }
+    return { tableName: tname, parenIndex: p, next: p + 1 };
+  }
+
+  function findNextCreateTableStart(text, fromIdx) {
+    const rest = text.slice(fromIdx);
+    const m = /CREATE\s+TABLE/i.exec(rest);
+    return m ? fromIdx + m.index : -1;
+  }
+
+  function parseDDL(text) {
+    const tables = [];
+    let searchFrom = 0;
+    const len = text.length;
+    while (searchFrom < len) {
+      const cti = findNextCreateTableStart(text, searchFrom);
+      if (cti === -1) {
+        break;
+      }
+      const head = parseDdlTableNameAndOpenParen(text, cti);
+      if (!head) {
+        searchFrom = cti + 1;
+        continue;
+      }
+      const { tableName, parenIndex } = head;
+      const afterParen = findMatchingRightParen(text, parenIndex);
+      if (afterParen < 0) {
+        searchFrom = cti + 1;
+        continue;
+      }
+      const inner = text.slice(parenIndex + 1, afterParen - 1);
+      const fields = [];
+      for (const line of splitDdlTopLevelCommas(inner)) {
+        if (!line) {
+          continue;
+        }
+        if (/^\s*(PRIMARY|UNIQUE|KEY|CONSTRAINT|FOREIGN|CHECK|INDEX|FULLTEXT|SPATIAL)\b/i.test(line)) {
+          continue;
+        }
+        const colMatch = line.match(/^\s*(?:`([^`]+)`\s*|([A-Za-z_][A-Za-z0-9_]*)\s*)/i);
+        if (!colMatch) {
+          continue;
+        }
+        const colName = (colMatch[1] != null && colMatch[1] !== "" ? colMatch[1] : colMatch[2]) || "";
+        if (!colName) {
+          continue;
+        }
+        const afterCol = line.slice(colMatch[0].length);
+        const tr = /^\s*((?:[A-Za-z][A-Za-z0-9_]*)(?:\s*\(\s*[^()]*\s*\))?)/i.exec(afterCol);
+        const typ = tr && tr[1] ? tr[1].trim() : "unknown";
+        fields.push({ name: colName, type: typ || "unknown" });
+      }
+      if (fields.length) {
+        tables.push({ name: tableName, fields });
+      }
+      let j = afterParen;
+      while (j < len && text[j] !== ";") {
+        j++;
+      }
+      searchFrom = j < len && text[j] === ";" ? j + 1 : afterParen;
+    }
+    if (!tables.length) {
+      throw new Error("未识别到任何 CREATE TABLE 语句。请检查 DDL 格式（以分号结尾，支持 MySQL 反引号、COMMENT 与 ) ENGINE=...;）。");
+    }
+    return tables;
+  }
+
+  function syncOrderFieldOptions() {
+    const tname = els.fromTable.value;
+    const t = getTable(tname);
+    const cur = els.orderField.value;
+    if (!t) {
+      els.orderField.innerHTML = '<option value="">不排序</option>';
+      return;
+    }
+    els.orderField.innerHTML =
+      '<option value="">不排序</option>' + t.fields.map((f) => `<option value="${f.name}">${f.name}</option>`).join("");
+    if (t.fields.some((f) => f.name === cur)) els.orderField.value = cur;
+  }
+
+  function renderSelectChips() {
+    if (state.useStar) {
+      els.selectChips.innerHTML = '<span class="chip">*（全部列）</span>';
+      els.selectDropHint.textContent = "已选择 *";
+      return;
+    }
+    els.selectChips.innerHTML = state.selectFields
+      .map(
+        (ref) => `<span class="chip" data-ref="${escapeHtml(ref)}">${escapeHtml(ref)} <button type="button" class="btn btn-ghost btn-sm rm-chip" data-ref="${escapeHtml(
+          ref
+        )}" style="padding:0 4px">×</button></span>`
+      )
+      .join(" ");
+    if (!state.selectFields.length) els.selectDropHint.textContent = "将左侧字段拖入此处；留空则使用 *";
+    else els.selectDropHint.textContent = "已选列（可点 × 删除）";
+    els.selectChips.querySelectorAll(".rm-chip").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const ref = btn.getAttribute("data-ref");
+        state.selectFields = state.selectFields.filter((x) => x !== ref);
+        updateSql();
+        renderSelectChips();
+      });
+    });
+  }
+
+  function addSelectRef(table, field) {
+    state.useStar = false;
+    const ref = fullCol(table, field);
+    if (!state.selectFields.includes(ref)) state.selectFields.push(ref);
+  }
+
+  function setupDrag() {
+    els.tableList.addEventListener("dragstart", (e) => {
+      const t = e.target && e.target.closest && e.target.closest(".field-item");
+      if (!t) return;
+      e.dataTransfer.setData("text/plain", JSON.stringify({ table: t.dataset.table, field: t.dataset.field }));
+    });
+    const drop = els.selectDrop;
+    ["dragenter", "dragover", "dragleave"].forEach((ev) => {
+      drop.addEventListener(ev, (e) => {
+        e.preventDefault();
+        if (ev === "dragleave" && e.target === drop) drop.classList.remove("dragover");
+        if (ev === "dragover") drop.classList.add("dragover");
+      });
+    });
+    drop.addEventListener("drop", (e) => {
+      e.preventDefault();
+      drop.classList.remove("dragover");
+      try {
+        const d = JSON.parse(e.dataTransfer.getData("text/plain") || "{}");
+        if (d.table && d.field) {
+          addSelectRef(d.table, d.field);
+          renderSelectChips();
+          updateSql();
+        }
+      } catch (_) {}
+    });
+  }
+
+  function renderWhereRows() {
+    const tname = els.fromTable.value;
+    const t = getTable(tname);
+    if (!state.whereRows.length) state.whereRows.push({ table: tname || "", field: t && t.fields[0] ? t.fields[0].name : "", op: "=", value: "" });
+
+    els.whereRows.innerHTML = state.whereRows
+      .map((row, i) => {
+        const tableOpts = state.tables
+          .map((tb) => `<option value="${tb.name}" ${row.table === tb.name ? "selected" : ""}>${tb.name}</option>`)
+          .join("");
+        const rt = getTable(row.table) || t;
+        const fieldOpts = rt
+          ? rt.fields.map((f) => `<option value="${f.name}" ${row.field === f.name ? "selected" : ""}>${f.name}</option>`).join("")
+          : '<option value="">先选表</option>';
+        const opOpts = OPS.map((o) => `<option value="${o.v}" ${row.op === o.v ? "selected" : ""}>${o.t} ${o.v}</option>`).join("");
+        const hideVal = row.op === "IS NULL" || row.op === "IS NOT NULL";
+        return `
+        <div class="where-row" data-idx="${i}">
+          <select class="w-table">${tableOpts || '<option value="">无表</option>'}</select>
+          <select class="w-field">${fieldOpts}</select>
+          <select class="w-op">${opOpts}</select>
+          <input type="text" class="w-val" value="${escapeHtml(row.value)}" placeholder="值" ${hideVal ? "disabled" : ""} style="${hideVal ? "opacity:0.5" : ""}" />
+          <button type="button" class="btn btn-ghost btn-sm w-rm" title="删除">×</button>
+        </div>`;
+      })
+      .join("");
+
+    els.whereRows.querySelectorAll(".where-row").forEach((el) => {
+      const i = +el.getAttribute("data-idx");
+      const wTable = el.querySelector(".w-table");
+      const wField = el.querySelector(".w-field");
+      const wOp = el.querySelector(".w-op");
+      const wVal = el.querySelector(".w-val");
+      const wRm = el.querySelector(".w-rm");
+      wTable.addEventListener("change", () => {
+        state.whereRows[i].table = wTable.value;
+        const tt = getTable(wTable.value);
+        state.whereRows[i].field = tt && tt.fields[0] ? tt.fields[0].name : "";
+        renderWhereRows();
+        updateSql();
+      });
+      wField.addEventListener("change", () => {
+        state.whereRows[i].field = wField.value;
+        updateSql();
+      });
+      wOp.addEventListener("change", () => {
+        state.whereRows[i].op = wOp.value;
+        if (wOp.value === "IS NULL" || wOp.value === "IS NOT NULL") state.whereRows[i].value = "";
+        renderWhereRows();
+        updateSql();
+      });
+      wVal.addEventListener("input", () => {
+        state.whereRows[i].value = wVal.value;
+        updateSql();
+      });
+      wRm.addEventListener("click", () => {
+        state.whereRows.splice(i, 1);
+        if (!state.whereRows.length) state.whereRows.push({ table: els.fromTable.value, field: "", op: "=", value: "" });
+        renderWhereRows();
+        updateSql();
+      });
+    });
+  }
+
+  function formatValueForSql(op, raw, fieldType) {
+    const t = (fieldType || "").toLowerCase();
+    const n = (raw || "").trim();
+    if (op === "IN") {
+      const parts = n.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
+      if (!parts.length) return "()";
+      const isNum = /int|decimal|float|double|number|real|serial/i.test(t);
+      return "(" + parts.map((p) => (isNum && /^-?\d+(\.\d+)?$/.test(p) ? p : quoteString(p))).join(", ") + ")";
+    }
+    if (/^int|decimal|float|double|number|real|serial|bool|bit/i.test(t) && /^-?\d+(\.\d+)?$/.test(n)) return n;
+    if (n === "" && op !== "LIKE") return "''";
+    return quoteString(n);
+  }
+
+  function quoteString(s) {
+    return "'" + String(s).replace(/'/g, "''") + "'";
+  }
+
+  function buildWhereClauses() {
+    const parts = [];
+    for (const row of state.whereRows) {
+      if (!row.table || !row.field) continue;
+      const tt = getTable(row.table);
+      if (!tt) continue;
+      const fld = tt.fields.find((f) => f.name === row.field);
+      const col = fullCol(row.table, row.field);
+      if (row.op === "IS NULL" || row.op === "IS NOT NULL") {
+        parts.push(col + " " + row.op);
+        continue;
+      }
+      if (row.op === "IN") {
+        parts.push(col + " IN " + formatValueForSql("IN", row.value, fld ? fld.type : ""));
+        continue;
+      }
+      parts.push(col + " " + row.op + " " + formatValueForSql(row.op, row.value, fld ? fld.type : ""));
+    }
+    return parts;
+  }
+
+  function buildSelectSql() {
+    const tname = els.fromTable.value;
+    if (!tname) return "-- 请在「主表」中选择表名";
+    const t = getTable(tname);
+    if (!t) return "-- 表不存在";
+
+    let selectList;
+    if (state.useStar) selectList = quoteIdent(tname) + ".*";
+    else if (state.selectFields.length) selectList = state.selectFields.join(", ");
+    else selectList = quoteIdent(tname) + ".*";
+
+    let sql = "SELECT " + selectList + "\nFROM " + quoteIdent(tname);
+    const whereParts = buildWhereClauses();
+    if (whereParts.length) sql += "\nWHERE " + whereParts.join(" AND ");
+    if (state.groupBy) sql += "\nGROUP BY " + fullCol(tname, state.groupBy);
+
+    const of = els.orderField.value;
+    if (of) sql += "\nORDER BY " + fullCol(tname, of) + " " + els.orderDir.value;
+
+    const lim = els.limitVal.value.trim();
+    const off = els.offsetVal.value.trim();
+    if (lim !== "") {
+      sql += "\nLIMIT " + parseInt(lim, 10);
+      if (off !== "" && +off > 0) sql += " OFFSET " + parseInt(off, 10);
+    } else if (off !== "" && +off > 0) {
+      sql += "\nLIMIT 9223372036854775807 OFFSET " + parseInt(off, 10);
+    }
+
+    return sql;
+  }
+
+  function updateSql() {
+    els.sqlOut.textContent = buildSelectSql();
+  }
+
+  function applyTemplate(id) {
+    const main = state.tables[0];
+    if (!main) {
+      alert("请先导入或添加表结构。");
+      return;
+    }
+    els.fromTable.value = main.name;
+    syncOrderFieldOptions();
+    const t = main;
+    if (id === "simple_select") {
+      state.useStar = true;
+      state.selectFields = [];
+      state.groupBy = null;
+      state.whereRows = [{ table: t.name, field: t.fields[0] ? t.fields[0].name : "", op: "=", value: "" }];
+    } else if (id === "count_all") {
+      state.useStar = false;
+      state.groupBy = null;
+      state.selectFields = ["COUNT(*) AS cnt"];
+      state.whereRows = [{ table: t.name, field: t.fields[0] ? t.fields[0].name : "", op: "IS NOT NULL", value: "" }];
+    } else if (id === "group_count") {
+      const cat = t.fields.find((f) => /name|dept|type|status|cat|class|group|region/i.test(f.name)) || t.fields[0];
+      if (!cat) return;
+      state.useStar = false;
+      state.groupBy = cat.name;
+      state.selectFields = [fullCol(t.name, cat.name), "COUNT(*) AS cnt"];
+      state.whereRows = [];
+      const secondField = t.fields.find((f) => f.name !== cat.name) || cat;
+      state.whereRows.push({ table: t.name, field: secondField.name, op: "IS NOT NULL", value: "" });
+    } else if (id === "join_orders_users") {
+      state.groupBy = null;
+      const u = state.tables.find((x) => /user/i.test(x.name)) || t;
+      const o = state.tables.find((x) => /order/i.test(x.name));
+      if (!o || u === o) {
+        alert("联表示例需要同时存在含 users 与 orders 的表；可先点击「载入示例」。");
+        return;
+      }
+      els.fromTable.value = o.name;
+      state.useStar = false;
+      state.selectFields = [
+        fullCol(o.name, o.fields[0] ? o.fields[0].name : "id"),
+        fullCol(u.name, u.fields.find((f) => f.name === "name") ? "name" : u.fields[0].name),
+        fullCol(o.name, o.fields.find((f) => /amount|total|price/i.test(f.name)) ? o.fields.find((f) => /amount|total|price/i.test(f.name)).name : o.fields[0].name),
+      ];
+      const uid = o.fields.find((f) => /user_id|uid/i.test(f.name));
+      const joinCol = u.fields.find((f) => f.name === "id");
+      if (uid && joinCol) {
+        state.whereRows = [];
+        const sql =
+          "SELECT " +
+          state.selectFields.join(", ") +
+          "\nFROM " +
+          quoteIdent(o.name) +
+          "\nINNER JOIN " +
+          quoteIdent(u.name) +
+          " ON " +
+          fullCol(o.name, uid.name) +
+          " = " +
+          fullCol(u.name, joinCol.name);
+        const of = o.fields.find((f) => /created|date|time/i.test(f.name));
+        let rest = sql;
+        if (of) rest += "\nORDER BY " + fullCol(o.name, of.name) + " DESC";
+        rest += "\nLIMIT 100";
+        els.sqlOut.textContent = rest;
+        syncOrderFieldOptions();
+        renderSelectChips();
+        renderWhereRows();
+        return;
+      }
+    }
+    renderSelectChips();
+    renderWhereRows();
+    updateSql();
+  }
+
+  function renderTemplateButtons() {
+    els.templateGrid.innerHTML = TEMPLATES.map(
+      (x) => `<button type="button" class="template-btn" data-tpl="${x.id}"><strong>${escapeHtml(x.name)}</strong><br/><span class="type-badge">${escapeHtml(
+        x.desc
+      )}</span></button>`
+    ).join("");
+    els.templateGrid.querySelectorAll(".template-btn").forEach((b) => {
+      b.addEventListener("click", () => applyTemplate(b.getAttribute("data-tpl")));
+    });
+  }
+
+  function nlToHeuristic(text) {
+    const raw = (text || "").trim();
+    if (!raw) return;
+    const tname = els.fromTable.value;
+    const t = getTable(tname);
+    if (!t) {
+      if (state.tables[0]) {
+        els.fromTable.value = state.tables[0].name;
+        return nlToHeuristic(text);
+      }
+      return;
+    }
+
+    const s = raw.toLowerCase();
+    const fields = t.fields;
+
+    const pickField = (hint) => {
+      const h = hint.toLowerCase();
+      for (const f of fields) {
+        if (f.name.toLowerCase() === h || f.name.toLowerCase().includes(h) || h.includes(f.name.toLowerCase())) return f;
+      }
+      return fields[0];
+    };
+
+    state.useStar = /所有|全部|all\b|\*/.test(s) && !/多少|几|数|条数|count|分组/.test(s);
+    if (!state.useStar) {
+      if (/多少|几行|行数|count|总数/.test(s)) {
+        state.selectFields = ["COUNT(*) AS total"];
+        state.groupBy = null;
+      } else {
+        const m = raw.match(/查询\s*([a-zA-Z0-9_]+)|查\s*([a-zA-Z0-9_]+)|查\s*(\S+?)(?:\s+为|\s*=\s*)/u);
+        let f = fields[0];
+        if (m) {
+          const nameHint = m[1] || m[2] || m[3];
+          if (nameHint) f = pickField(nameHint.replace(/的|的字段/, "")) || f;
+        }
+        state.selectFields = [fullCol(tname, f.name)];
+        state.groupBy = null;
+      }
+    } else {
+      state.selectFields = [];
+      state.groupBy = null;
+    }
+
+    const conds = [];
+    const numMatch = raw.match(/(大于|>)\s*([\d.]+)/);
+    if (numMatch) {
+      const val = numMatch[2];
+      const amount = fields.find((f) => /amount|price|total|num|count|val/i.test(f.name)) || fields[0];
+      conds.push({ table: tname, field: amount.name, op: ">", value: val });
+    }
+    const between = raw.match(/(介于|在)\s*([\d.]+)\s*和\s*([\d.]+)/);
+    if (between) {
+      const f0 = fields.find((f) => /amount|price|id|age/i.test(f.name)) || fields[0];
+      conds.push({ table: tname, field: f0.name, op: ">=", value: between[2] });
+      conds.push({ table: tname, field: f0.name, op: "<=", value: between[3] });
+    }
+    const eq = raw.match(/([a-zA-Z0-9_]+)\s*(为|是|==|=\s*)\s*['"]?([^'"]+)['"]?/u) || raw.match(/where\s+(\w+)\s*=\s*['"]?([^'"]+)['"]?/i);
+    if (eq && !/查询|查/.test(eq[1] || "")) {
+      const fn = (eq[1] || "").replace(/^(where|and)$/i, "");
+      if (fn) {
+        const fd = pickField(fn);
+        if (fd) conds.push({ table: tname, field: fd.name, op: "=", value: (eq[3] || eq[2] || "").trim() });
+      }
+    }
+    if (/^查询.+为/.test(raw)) {
+      const m2 = raw.match(/为(['"]?)([^'"]+)\1|为([^\s，,;]+)/);
+      if (m2) {
+        const nameF = fields.find((f) => /name|title|user|email/i.test(f.name)) || fields[0];
+        conds.push({ table: tname, field: nameF.name, op: "=", value: (m2[2] || m2[3] || "").replace(/^['"]|['"]$/g, "") });
+      }
+    }
+    if (/空|null/i.test(s) && /email|name|手机|电话/.test(s)) {
+      const nf = fields.find((f) => /email|phone|tel|name/i.test(f.name));
+      if (nf) conds.push({ table: tname, field: nf.name, op: "IS NULL", value: "" });
+    }
+    if (/非空|不为空|is not null/.test(s)) {
+      const nf = fields[0];
+      conds.push({ table: tname, field: nf.name, op: "IS NOT NULL", value: "" });
+    }
+
+    if (conds.length) state.whereRows = conds;
+    else state.whereRows = [{ table: tname, field: fields[0] ? fields[0].name : "", op: "=", value: "" }];
+
+    if (/降序|从大到|desc|最新|时间倒/.test(s)) {
+      const timeF = fields.find((f) => /created|time|date|at$/i.test(f.name));
+      if (timeF) {
+        els.orderField.value = timeF.name;
+        els.orderDir.value = "DESC";
+      }
+    } else if (/升序|asc|从旧|最早/.test(s)) {
+      const timeF = fields.find((f) => /created|time|date/i.test(f.name)) || fields[0];
+      if (timeF) {
+        els.orderField.value = timeF.name;
+        els.orderDir.value = "ASC";
+      }
+    } else {
+      els.orderField.value = "";
+    }
+
+    const limitM = s.match(/(?:前|只|取|最)\s*(\d+)\s*条|limit\s*(\d+)/i);
+    if (limitM) els.limitVal.value = limitM[1] || limitM[2] || "";
+    else if (/前10|十条/.test(s)) els.limitVal.value = "10";
+
+    if (/分组|各.*(数量|条数|人数)|group by|按\s*(\w+)\s*统计/.test(s)) {
+      const cat = fields.find((f) => /dept|type|status|name|class|组/i.test(f.name)) || fields[0];
+      state.useStar = false;
+      state.groupBy = cat.name;
+      state.selectFields = [fullCol(tname, cat.name), "COUNT(*) AS cnt"];
+      const extra = fields.find((f) => f.name !== cat.name) || cat;
+      state.whereRows = [{ table: tname, field: extra.name, op: "IS NOT NULL", value: "" }];
+      renderSelectChips();
+      renderWhereRows();
+      updateSql();
+      return;
+    }
+
+    renderSelectChips();
+    renderWhereRows();
+    updateSql();
+  }
+
+
+  elListeners();
+  renderTemplateButtons();
+  setupDrag();
+  renderSchema();
+
+  function elListeners() {
+    els.parseDdl.addEventListener("click", () => {
+      try {
+        const tables = parseDDL(els.ddlInput.value);
+        state.tables = tables;
+        state.groupBy = null;
+        if (!state.whereRows.length) state.whereRows = [{ table: tables[0].name, field: tables[0].fields[0] ? tables[0].fields[0].name : "", op: "=", value: "" }];
+        renderSchema();
+        els.copyStatus.textContent = "已解析 " + tables.length + " 张表";
+        setTimeout(() => (els.copyStatus.textContent = ""), 2000);
+      } catch (e) {
+        alert(e.message || String(e));
+      }
+    });
+    els.loadSampleDdl.addEventListener("click", () => {
+      els.ddlInput.value = SAMPLE_DDL;
+    });
+    els.clearSchema.addEventListener("click", () => {
+      if (!confirm("确定清空所有表与中间区条件？")) return;
+      state.tables = [];
+      state.selectFields = [];
+      state.useStar = false;
+      state.groupBy = null;
+      state.whereRows = [];
+      renderSchema();
+    });
+    els.addManualTable.addEventListener("click", () => {
+      const name = (els.manualTable.value || "").trim();
+      if (!name) {
+        alert("请填写表名");
+        return;
+      }
+      const lines = (els.manualFields.value || "").split("\n");
+      const fields = [];
+      for (const line of lines) {
+        const p = line.trim().split(/\s+/);
+        if (p[0]) fields.push({ name: p[0], type: p[1] || "text" });
+      }
+      if (!fields.length) {
+        alert("请至少填写一个字段");
+        return;
+      }
+      const i = state.tables.findIndex((t) => t.name === name);
+      const tb = { name, fields };
+      if (i >= 0) state.tables[i] = tb;
+      else state.tables.push(tb);
+      els.manualTable.value = "";
+      els.manualFields.value = "";
+      renderSchema();
+    });
+    els.fromTable.addEventListener("change", () => {
+      syncOrderFieldOptions();
+      state.whereRows = state.whereRows.map((r) => ({ ...r, table: els.fromTable.value }));
+      renderWhereRows();
+      updateSql();
+    });
+    els.clearSelect.addEventListener("click", () => {
+      state.selectFields = [];
+      state.useStar = false;
+      state.groupBy = null;
+      renderSelectChips();
+      updateSql();
+    });
+    els.addStar.addEventListener("click", () => {
+      state.useStar = true;
+      state.selectFields = [];
+      state.groupBy = null;
+      renderSelectChips();
+      updateSql();
+    });
+    els.addWhere.addEventListener("click", () => {
+      const tname = els.fromTable.value;
+      const t = getTable(tname);
+      state.whereRows.push({ table: tname, field: t && t.fields[0] ? t.fields[0].name : "", op: "=", value: "" });
+      renderWhereRows();
+      updateSql();
+    });
+    [els.orderField, els.orderDir, els.limitVal, els.offsetVal].forEach((x) => x.addEventListener("input", updateSql));
+    [els.orderField, els.orderDir, els.limitVal, els.offsetVal].forEach((x) => x.addEventListener("change", updateSql));
+    els.nlToSql.addEventListener("click", () => {
+      nlToHeuristic(els.nlInput.value);
+    });
+    els.copySql.addEventListener("click", async () => {
+      const t = els.sqlOut.textContent || "";
+      try {
+        await navigator.clipboard.writeText(t);
+        els.copyStatus.textContent = "已复制到剪贴板";
+      } catch (_) {
+        els.copyStatus.textContent = "请手动选中文本复制";
+      }
+      setTimeout(() => (els.copyStatus.textContent = ""), 2000);
+    });
+  }
+})();
+  </script>
+</body>
+</html>
